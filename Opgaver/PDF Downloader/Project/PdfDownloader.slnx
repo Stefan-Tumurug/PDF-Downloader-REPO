@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="PdfDownloader.Cli/PdfDownloader.Cli.csproj" />
   <Project Path="PdfDownloader.Core/PdfDownloader.Core.csproj" />
+  <Project Path="PdfDownloader.Gui/PdfDownloader.Gui.csproj" />
   <Project Path="PdfDownloader.Tests/PdfDownloader.Tests.csproj" />
 </Solution>
