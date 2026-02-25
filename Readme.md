@@ -1,5 +1,5 @@
 # PDF Downloader
-
+![CI](https://github.com/Stefan-Tumurug/PDF-Downloader-REPO/actions/workflows/ci.yml/badge.svg)
 ## Overview
 
 PDF Downloader is a .NET console application that reads report metadata from an Excel dataset and downloads valid PDF reports to a specified output folder.
