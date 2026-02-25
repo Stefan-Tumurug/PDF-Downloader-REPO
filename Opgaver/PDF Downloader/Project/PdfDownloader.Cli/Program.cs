@@ -10,6 +10,17 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
+bool cancelRequested = false;
+
+using CancellationTokenSource cts = new CancellationTokenSource();
+
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cancelRequested = true;
+    cts.Cancel();
+};
+
 try
 {
     CliArgumentsParser parser = new CliArgumentsParser(AppContext.BaseDirectory);
@@ -38,7 +49,13 @@ try
         statusFileRelativePath: "status.csv");
 
     IReadOnlyList<DownloadStatusRow> rows =
-        await runner.RunAsync(records, options, CancellationToken.None);
+        await runner.RunAsync(records, options, cts.Token);
+
+    if (cancelRequested)
+    {
+        Console.Error.WriteLine("Cancelled by user.");
+        return 130;
+    }
 
     int downloaded = rows.Count(r => r.Status == DownloadStatus.Downloaded);
     int failed = rows.Count(r => r.Status == DownloadStatus.Failed);
@@ -53,6 +70,11 @@ try
     Console.WriteLine($"Status file    : {Path.Combine(outputFolder, "status.csv")}");
 
     return 0;
+}
+catch (OperationCanceledException)
+{
+    Console.Error.WriteLine("Cancelled by user.");
+    return 130;
 }
 catch (Exception ex)
 {
