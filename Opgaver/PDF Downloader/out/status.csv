@@ -1,0 +1,20 @@
+﻿BRnum,AttemptedUrl,Status,Error
+BR50041,http://arpeissig.at/wp-content/uploads/2016/02/D7_NHB_ARP_Final_2.pdf,Failed,"Not a PDF. First bytes: <!DOCTYPE html>.<html dir=""ltr"" "
+BR50042,http://cdn12.a1.net/m/resources/media/pdf/A1-Umwelterkl-rung-2016-2017.pdf,Downloaded,
+BR50043,https://www.a2a.eu/en/sustainability/sustainability-reports,Failed,Response status code does not indicate success: 404 (Not Found).
+BR50044,file:///C:/Users/miller/Downloads/AA_AR2017.pdf,Failed,The 'file' scheme is not supported.
+BR50045,http://www.hkexnews.hk/listedco/listconews/SEHK/2017/0512/LTN20170512165.pdf,Downloaded,
+BR50047,http://ebooks.exakta.se/aak/2017/hallbarhetsrapport_2016_2017_en/pubData/source/aak_sustainability_report_2016_2017_ebook.pdf,Downloaded,
+BR50048,http://www.aalto.fi/en/about/reports_and_statistics/sustainability/raportit/,Failed,Response status code does not indicate success: 404 (Not Found).
+BR50049,https://www.ag.ch/media/kanton_aargau/bvu/dokumente_2/umwelt__natur___landschaft/naturschutz_1/nachhaltigkeit_1/Bericht_Nachhaltigkeit_Def_klein.pdf,Failed,Response status code does not indicate success: 404 (Not Found).
+BR50050,https://www.akb.ch/die-akb/kommunikation-medien/geschaeftsberichte,Failed,Response status code does not indicate success: 403 (Forbidden).
+BR50051,http://www.eugesta.lt/assets/SOCIALINES-ATSAKOMYBES-ATASKAITA-2016.pdf,Failed,"Not a PDF. First bytes: .<!doctype html>.<html lang=""en-"
+BR50052,http://www.ab-science.com/file_bdd/content/1480493978_DDRVF.pdf,Downloaded,
+BR50053,https://www.ab.gr/responsible/reports,Failed,Not a PDF. First bytes: <!DOCTYPE html><html data-testid
+BR50054,https://www.abancacorporacionbancaria.com/files/documents/memoria-anual-rsc-2016-es.pdf,Downloaded,
+BR50055,https://cdn.cse.lk/cmt/upload_report_file/642_1502793422.pdf,Downloaded,
+BR50056,http://www.bseindia.com/bseplus/AnnualReport/500002/5000021216.pdf,Failed,Response status code does not indicate success: 404 (Not Found).
+BR50057,http://dam.abbott.com/en-us/documents/pdfs/abbott-citizenship/2016_Sustainability_Report_LONG_FORM.pdf,Downloaded,
+BR50058,http://dam.abbott.com/en-ie/documents/pdf/2994 Citizenship Report 2016 v15.pdf,Downloaded,
+BR50059,http://www.abc.net.au/corp/annual-report/2017/documents/ABC_AnnualREport-2017_Volume-1.pdf,Downloaded,
+BR50060,https://www.abc-arbitrage.com/wp-content/uploads/2017/04/20170428-ABCA-VA-Annual-Financial-Report-2016-RFA.pdf,Downloaded,
