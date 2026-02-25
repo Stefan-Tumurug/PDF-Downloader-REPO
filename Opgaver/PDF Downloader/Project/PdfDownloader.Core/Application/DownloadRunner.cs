@@ -135,7 +135,7 @@ public sealed class DownloadRunner
 
     private async Task<DownloadAttempt> TryDownloadPdfWithRetryAsync(Uri url, CancellationToken cancellationToken)
     {
-        DownloadAttempt lastAttempt = DownloadAttempt.Failed("Unknown error.");
+        DownloadAttempt lastAttempt = DownloadAttempt.Failed("Unknown error.", isTransientFailure: true);
 
         for (int attemptNo = 0; attemptNo <= MaxRetries; attemptNo++)
         {
@@ -148,7 +148,12 @@ public sealed class DownloadRunner
                 return lastAttempt;
             }
 
-            // simple backoff (kept small on purpose)
+            // Don't retry deterministic failures (e.g. not a PDF)
+            if (!lastAttempt.IsTransientFailure)
+            {
+                return lastAttempt;
+            }
+
             if (attemptNo < MaxRetries)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250 * (attemptNo + 1)), cancellationToken);
@@ -170,14 +175,14 @@ public sealed class DownloadRunner
             if (!LooksLikePdf(bytes))
             {
                 string preview = ToAsciiPreview(bytes, 32);
-                return DownloadAttempt.Failed($"Not a PDF. First bytes: {preview}");
+                return DownloadAttempt.Failed($"Not a PDF. First bytes: {preview}", isTransientFailure: false);
             }
 
             return DownloadAttempt.Success(bytes);
         }
         catch (Exception ex)
         {
-            return DownloadAttempt.Failed(ex.Message);
+            return DownloadAttempt.Failed(ex.Message, isTransientFailure: true);
         }
     }
 
@@ -239,18 +244,21 @@ public sealed class DownloadRunner
 
     private sealed class DownloadAttempt
     {
-        private DownloadAttempt(bool isSuccess, byte[]? bytes, string errorMessage)
+        private DownloadAttempt(bool isSuccess, byte[]? bytes, string errorMessage, bool isTransientFailure)
         {
             IsSuccess = isSuccess;
             Bytes = bytes;
             ErrorMessage = errorMessage;
+            IsTransientFailure = isTransientFailure;
         }
 
         public bool IsSuccess { get; }
         public byte[]? Bytes { get; }
         public string ErrorMessage { get; }
+        public bool IsTransientFailure { get; }
 
-        public static DownloadAttempt Success(byte[] bytes) => new(true, bytes, string.Empty);
-        public static DownloadAttempt Failed(string error) => new(false, null, error);
+        public static DownloadAttempt Success(byte[] bytes) => new(true, bytes, string.Empty, false);
+        public static DownloadAttempt Failed(string error, bool isTransientFailure)
+            => new(false, null, error, isTransientFailure);
     }
 }
