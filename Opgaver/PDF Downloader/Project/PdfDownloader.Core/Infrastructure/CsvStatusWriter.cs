@@ -7,14 +7,9 @@ namespace PdfDownloader.Core.Infrastructure;
 /// <summary>
 /// Writes status rows to a CSV file.
 /// </summary>
-public sealed class CsvStatusWriter : IStatusWriter
+public sealed class CsvStatusWriter(string rootFolder) : IStatusWriter
 {
-    private readonly string _rootFolder;
-
-    public CsvStatusWriter(string rootFolder)
-    {
-        _rootFolder = rootFolder;
-    }
+    private readonly string _rootFolder = rootFolder;
 
     public async Task WriteAsync(
         string relativePath,
@@ -29,7 +24,7 @@ public sealed class CsvStatusWriter : IStatusWriter
             Directory.CreateDirectory(dir);
         }
 
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new();
         sb.AppendLine("BRnum,AttemptedUrl,Status,Error");
 
         foreach (DownloadStatusRow row in rows)
