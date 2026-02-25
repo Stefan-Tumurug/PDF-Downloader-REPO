@@ -84,7 +84,7 @@ This makes the system testable and extensible.
 
 ## Documentation
 
-Additional documentation (UML diagrams, use cases, fremgangsmåde, tidsregistrering) is located in:
+Additional documentation (UML diagrams, use cases, fremgangsmaade, tidsregistrering) is located in:
 
 `Opgaver/PDF Downloader/Documentation (Danish)`
 
@@ -93,6 +93,7 @@ Additional documentation (UML diagrams, use cases, fremgangsmåde, tidsregistrer
 - .NET
 - C#
 - ClosedXML (Excel parsing)
+- MSTest
 
 ## Notes
 
@@ -101,8 +102,10 @@ This implementation is intentionally limited to 10 successful downloads per run 
 The original reference implementation was written in Python.
 C# was chosen to better demonstrate object-oriented design, layering, and testability.
 
-## Next Steps
+## Possible Next Steps
 
-- Add unit tests for `DownloadRunner`
-- Expand documentation
+- Expand unit test coverage (edge cases, failure scenarios)
+- Improve CLI input validation and error messages
+- Add retry / timeout handling to HTTP downloads
 - Remove download limit for production use
+- Add CI pipeline and coverage reporting

@@ -1,77 +1,64 @@
-﻿using PdfDownloader.Core.Application;
+﻿using PdfDownloader.Cli;
+using PdfDownloader.Core.Application;
 using PdfDownloader.Core.Domain;
 using PdfDownloader.Core.Infrastructure;
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 
-(string xlsxPath, string outputFolder) = ResolvePaths(args);
-
-ExcelReportSource source = new ExcelReportSource(xlsxPath);
-IReadOnlyList<ReportRecord> records = source.ReadAll();
-
-using HttpClient httpClient = CreateHttpClient();
-
-DownloadRunner runner = new DownloadRunner(
-    httpDownloader: new HttpClientDownloader(httpClient),
-    fileStore: new LocalFileStore(outputFolder),
-    statusWriter: new CsvStatusWriter(outputFolder));
-
-DownloadOptions options = new DownloadOptions(
-    maxSuccessfulDownloads: 10,
-    statusFileRelativePath: "status.csv");
-
-IReadOnlyList<DownloadStatusRow> rows = await runner.RunAsync(records, options, CancellationToken.None);
-
-int downloaded = rows.Count(r => r.Status == DownloadStatus.Downloaded);
-int failed = rows.Count(r => r.Status == DownloadStatus.Failed);
-int skipped = rows.Count(r => r.Status == DownloadStatus.SkippedExists);
-
-Console.WriteLine($"Loaded records : {records.Count}");
-Console.WriteLine($"Downloaded     : {downloaded}");
-Console.WriteLine($"Failed         : {failed}");
-Console.WriteLine($"Skipped        : {skipped}");
-Console.WriteLine($"Processed rows: {rows.Count}");
-Console.WriteLine($"Output folder : {outputFolder}");
-Console.WriteLine($"Status file   : {Path.Combine(outputFolder, "status.csv")}");
-
-static (string xlsxPath, string outputFolder) ResolvePaths(string[] args)
+try
 {
-    // Preferred: explicit arguments (production usage)
-    if (args.Length >= 2)
+    CliArgumentsParser parser = new CliArgumentsParser(AppContext.BaseDirectory);
+
+    if (!parser.TryParse(args, out CliArguments? cliArgs, out string? error, out int exitCode))
     {
-        return (args[0], args[1]);
+        Console.Error.WriteLine(error);
+        return exitCode;
     }
 
-    // Fallback: developer-friendly defaults (Visual Studio run)
-    // Use relative paths so the project can move location without code changes.
-    string repoRoot = FindRepoRoot(AppContext.BaseDirectory);
-    string xlsxPath = Path.Combine(repoRoot, "data", "GRI_2017_2020.xlsx");
-    string outputFolder = Path.Combine(repoRoot, "out");
+    string xlsxPath = cliArgs!.XlsxPath;
+    string outputFolder = cliArgs.OutputFolder;
 
-    Console.WriteLine("No args provided. Using default paths:");
-    Console.WriteLine($"XLSX: {xlsxPath}");
-    Console.WriteLine($"OUT : {outputFolder}");
+    ExcelReportSource source = new ExcelReportSource(xlsxPath);
+    IReadOnlyList<ReportRecord> records = source.ReadAll();
 
-    return (xlsxPath, outputFolder);
+    using HttpClient httpClient = CreateHttpClient();
+
+    DownloadRunner runner = new DownloadRunner(
+        httpDownloader: new HttpClientDownloader(httpClient),
+        fileStore: new LocalFileStore(outputFolder),
+        statusWriter: new CsvStatusWriter(outputFolder));
+
+    DownloadOptions options = new DownloadOptions(
+        maxSuccessfulDownloads: 10,
+        statusFileRelativePath: "status.csv");
+
+    IReadOnlyList<DownloadStatusRow> rows =
+        await runner.RunAsync(records, options, CancellationToken.None);
+
+    int downloaded = rows.Count(r => r.Status == DownloadStatus.Downloaded);
+    int failed = rows.Count(r => r.Status == DownloadStatus.Failed);
+    int skipped = rows.Count(r => r.Status == DownloadStatus.SkippedExists);
+
+    Console.WriteLine($"Loaded records : {records.Count}");
+    Console.WriteLine($"Downloaded     : {downloaded}");
+    Console.WriteLine($"Failed         : {failed}");
+    Console.WriteLine($"Skipped        : {skipped}");
+    Console.WriteLine($"Processed rows : {rows.Count}");
+    Console.WriteLine($"Output folder  : {outputFolder}");
+    Console.WriteLine($"Status file    : {Path.Combine(outputFolder, "status.csv")}");
+
+    return 0;
 }
-
-static string FindRepoRoot(string startDirectory)
+catch (Exception ex)
 {
-    DirectoryInfo? dir = new DirectoryInfo(startDirectory);
-
-    while (dir is not null)
-    {
-        // We consider repo root the folder that contains "data" and "out" (or at least "data").
-        string dataFolder = Path.Combine(dir.FullName, "data");
-        if (Directory.Exists(dataFolder))
-        {
-            return dir.FullName;
-        }
-
-        dir = dir.Parent;
-    }
-
-    // Last resort: use current working directory
-    return Directory.GetCurrentDirectory();
+    Console.Error.WriteLine("Unexpected error:");
+    Console.Error.WriteLine(ex);
+    return 1;
 }
 
 static HttpClient CreateHttpClient()

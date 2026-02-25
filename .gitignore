@@ -1,5 +1,18 @@
+# Visual Studio
 .vs/
-bin/
-obj/
 *.user
 *.suo
+
+# Build output
+**/bin/
+**/obj/
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# OS junk
+.DS_Store
+Thumbs.db
