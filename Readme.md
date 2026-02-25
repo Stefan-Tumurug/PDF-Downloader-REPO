@@ -1,56 +1,108 @@
-PDF Downloader
-Overview
+# PDF Downloader
+
+## Overview
 
 PDF Downloader is a .NET console application that reads report metadata from an Excel dataset and downloads valid PDF reports to a specified output folder.
 
-The system is designed with separation of concerns and a layered architecture (Core / CLI / Tests) to ensure maintainability and testability.
+The project is structured using a layered architecture (Core / CLI / Tests) to separate orchestration logic from infrastructure and presentation.
+The solution is designed to be testable, maintainable, and easy to extend.
 
-Features (Current Implementation – Day 1)
+This project is a prototype and intentionally limits each run to **10 successful PDF downloads**.
 
-Read dataset from GRI_2017_2020.xlsx
+## Features
 
-Map rows to domain model (ReportRecord)
+- Reads report metadata from `GRI_2017_2020.xlsx`
+- Maps rows to domain objects (`ReportRecord`)
+- Downloads PDFs using primary URL with fallback support
+- Validates files by checking `%PDF-` header (prevents HTML being saved as PDF)
+- Saves files as `<BRnum>.pdf`
+- Stops after **10 successful downloads**
+- Writes `status.csv` with:
+  - BR number
+  - Attempted URL
+  - Status (Downloaded / Failed / SkippedExists)
+  - Error message
+- Continues execution even if individual downloads fail
+- Prints summary counts to console
 
-Download PDF files via HTTP
+## Project Structure
 
-Validate PDF header (%PDF-)
+PdfDownloader.Core - Domain, orchestration and abstractions  
+PdfDownloader.Cli - Console entry point (composition root)  
+PdfDownloader.Tests - Unit tests (planned / in progress)
 
-Save valid files as <BRnum>.pdf
+## How to Run
 
-Skip invalid (HTML) responses
+### Option 1: Run from Visual Studio (no arguments)
 
-Clean Git setup with ignored build artifacts
+Press **Run** in Visual Studio.
 
-Project Structure
-PdfDownloader.Core      // Domain and business logic
-PdfDownloader.Cli       // Console interface (composition root)
-PdfDownloader.Tests     // Unit tests (planned)
-How to Run
-dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>"
+If no arguments are provided, the program automatically uses:
+
+- `data/GRI_2017_2020.xlsx`
+- `out/`
+
+These paths are resolved relative to the repository root.
+
+### Option 2: Run from terminal (explicit arguments)
+
+From the `Project` folder:
+
+`dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>"`
 
 Example:
 
-dotnet run --project ".\PdfDownloader.Cli\" -- "C:\data\GRI_2017_2020.xlsx" "C:\out"
-Architecture
+`dotnet run --project ".\PdfDownloader.Cli\" -- "C:\data\GRI_2017_2020.xlsx" "C:\out"`
 
-The application follows:
+## Output
 
-Separation of Concerns
+The output folder will contain:
 
-Dependency Inversion Principle
+- Up to 10 PDF files named `<BRnum>.pdf`
+- `status.csv` describing the result of each attempted download
 
-Testable core logic
+Console output includes:
 
-Explicit domain modeling
+- Total records loaded
+- Downloaded / Failed / Skipped counts
+- Output folder path
+- Status file path
 
-Excel parsing is handled via ClosedXML.
+## Architecture
 
-Next Steps
+The application follows SOLID principles:
 
-Move download orchestration into Core (DownloadRunner)
+- `DownloadRunner` coordinates the workflow
+- Infrastructure concerns are abstracted via interfaces:
+  - `IHttpDownloader`
+  - `IFileStore`
+  - `IStatusWriter`
+- CLI acts only as composition root
+- Core contains no direct HTTP or file system logic
 
-Implement status.csv output
+This makes the system testable and extensible.
 
-Enforce maximum 10 successful downloads per run
+## Documentation
 
-Add unit tests
+Additional documentation (UML diagrams, use cases, fremgangsmåde, tidsregistrering) is located in:
+
+`Opgaver/PDF Downloader/Documentation (Danish)`
+
+## Technology
+
+- .NET
+- C#
+- ClosedXML (Excel parsing)
+
+## Notes
+
+This implementation is intentionally limited to 10 successful downloads per run to avoid excessive network usage during development.
+
+The original reference implementation was written in Python.
+C# was chosen to better demonstrate object-oriented design, layering, and testability.
+
+## Next Steps
+
+- Add unit tests for `DownloadRunner`
+- Expand documentation
+- Remove download limit for production use
