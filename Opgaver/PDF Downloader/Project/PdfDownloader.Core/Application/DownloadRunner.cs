@@ -16,6 +16,8 @@ namespace PdfDownloader.Core.Application;
 /// </summary>
 public sealed class DownloadRunner
 {
+    private const int MaxRetries = 2; // total attempts = 1 + MaxRetries
+
     private readonly IHttpDownloader _httpDownloader;
     private readonly IFileStore _fileStore;
     private readonly IStatusWriter _statusWriter;
@@ -40,27 +42,30 @@ public sealed class DownloadRunner
         DownloadOptions options,
         CancellationToken cancellationToken)
     {
+        if (records is null) throw new ArgumentNullException(nameof(records));
+        if (options is null) throw new ArgumentNullException(nameof(options));
+
         List<DownloadStatusRow> rows = new();
         int successfulDownloads = 0;
 
         foreach (ReportRecord record in records)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (successfulDownloads >= options.MaxSuccessfulDownloads)
             {
                 break;
             }
 
-            string pdfFileName = $"{record.BrNum}.pdf";
+            if (!TryGetPdfFileName(record, out string pdfFileName, out DownloadStatusRow? invalidRow))
+            {
+                rows.Add(invalidRow!);
+                continue;
+            }
 
-            // Skip if file already exists.
             if (_fileStore.Exists(pdfFileName))
             {
-                rows.Add(new DownloadStatusRow(
-                    record.BrNum,
-                    string.Empty,
-                    DownloadStatus.SkippedExists,
-                    "File already exists."));
-
+                rows.Add(CreateRow(record.BrNum, string.Empty, DownloadStatus.SkippedExists, "File already exists."));
                 continue;
             }
 
@@ -88,38 +93,75 @@ public sealed class DownloadRunner
     {
         if (record.PrimaryUrl is not null)
         {
-            DownloadAttempt attempt = await TryDownloadPdfAsync(record.PrimaryUrl, cancellationToken);
-            if (attempt.IsSuccess)
+            DownloadStatusRow primaryRow =
+                await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, cancellationToken);
+
+            if (primaryRow.Status == DownloadStatus.Downloaded)
             {
-                await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
-                return new DownloadStatusRow(record.BrNum, record.PrimaryUrl.ToString(), DownloadStatus.Downloaded, string.Empty);
+                return primaryRow;
             }
 
+            // If there is no fallback, return primary failure.
             if (record.FallbackUrl is null)
             {
-                return new DownloadStatusRow(record.BrNum, record.PrimaryUrl.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
+                return primaryRow;
             }
         }
 
         if (record.FallbackUrl is not null)
         {
-            DownloadAttempt attempt = await TryDownloadPdfAsync(record.FallbackUrl, cancellationToken);
-            if (attempt.IsSuccess)
-            {
-                await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
-                return new DownloadStatusRow(record.BrNum, record.FallbackUrl.ToString(), DownloadStatus.Downloaded, string.Empty);
-            }
-
-            return new DownloadStatusRow(record.BrNum, record.FallbackUrl.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
+            return await TryDownloadAndSaveAsync(record, record.FallbackUrl, pdfRelativePath, cancellationToken);
         }
 
-        return new DownloadStatusRow(record.BrNum, string.Empty, DownloadStatus.Failed, "No URL available.");
+        return CreateRow(record.BrNum, string.Empty, DownloadStatus.Failed, "No URL available.");
+    }
+
+    private async Task<DownloadStatusRow> TryDownloadAndSaveAsync(
+        ReportRecord record,
+        Uri url,
+        string pdfRelativePath,
+        CancellationToken cancellationToken)
+    {
+        DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, cancellationToken);
+
+        if (!attempt.IsSuccess)
+        {
+            return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
+        }
+
+        await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
+        return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Downloaded, string.Empty);
+    }
+
+    private async Task<DownloadAttempt> TryDownloadPdfWithRetryAsync(Uri url, CancellationToken cancellationToken)
+    {
+        DownloadAttempt lastAttempt = DownloadAttempt.Failed("Unknown error.");
+
+        for (int attemptNo = 0; attemptNo <= MaxRetries; attemptNo++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            lastAttempt = await TryDownloadPdfOnceAsync(url, cancellationToken);
+
+            if (lastAttempt.IsSuccess)
+            {
+                return lastAttempt;
+            }
+
+            // simple backoff (kept small on purpose)
+            if (attemptNo < MaxRetries)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * (attemptNo + 1)), cancellationToken);
+            }
+        }
+
+        return lastAttempt;
     }
 
     /// <summary>
     /// Downloads bytes and validates that the response is a PDF.
     /// </summary>
-    private async Task<DownloadAttempt> TryDownloadPdfAsync(Uri url, CancellationToken cancellationToken)
+    private async Task<DownloadAttempt> TryDownloadPdfOnceAsync(Uri url, CancellationToken cancellationToken)
     {
         try
         {
@@ -138,6 +180,31 @@ public sealed class DownloadRunner
             return DownloadAttempt.Failed(ex.Message);
         }
     }
+
+    private static bool TryGetPdfFileName(ReportRecord record, out string pdfFileName, out DownloadStatusRow? invalidRow)
+    {
+        pdfFileName = string.Empty;
+        invalidRow = null;
+
+        if (record.BrNum is null)
+        {
+            invalidRow = CreateRow(string.Empty, string.Empty, DownloadStatus.Failed, "Missing BR number.");
+            return false;
+        }
+
+        string br = record.BrNum.Trim();
+        if (br.Length == 0)
+        {
+            invalidRow = CreateRow(record.BrNum, string.Empty, DownloadStatus.Failed, "Missing BR number.");
+            return false;
+        }
+
+        pdfFileName = $"{br}.pdf";
+        return true;
+    }
+
+    private static DownloadStatusRow CreateRow(string brNum, string url, DownloadStatus status, string errorMessage)
+        => new(brNum, url, status, errorMessage);
 
     /// <summary>
     /// PDF files always start with "%PDF-".
