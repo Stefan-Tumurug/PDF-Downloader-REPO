@@ -8,8 +8,8 @@ on:
 
 jobs:
   build-and-test:
+    name: Build & Test (Core/CLI/Tests)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,10 +20,28 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore "src/PdfDownloader.slnx"
+        run: dotnet restore "src/PdfDownloader.slnx" --exclude "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj"
 
       - name: Build
-        run: dotnet build "src/PdfDownloader.slnx" --no-restore -c Release
+        run: dotnet build "src/PdfDownloader.slnx" --no-restore -c Release --exclude "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj"
 
       - name: Test
-        run: dotnet test "src/PdfDownloader.slnx" --no-build -c Release
+        run: dotnet test "tests/PdfDownloader.Tests/PdfDownloader.Tests.csproj" -c Release
+
+  build-gui:
+    name: Build (GUI)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj"
+
+      - name: Build
+        run: dotnet build "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj" --no-restore -c Release
