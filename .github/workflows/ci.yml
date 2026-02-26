@@ -20,7 +20,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore "src/PdfDownloader.Cli/PdfDownloader.Cli.csproj"
 
       - name: Build CLI (includes Core)
         run: dotnet build "src/PdfDownloader.Cli/PdfDownloader.Cli.csproj" --no-restore -c Release
