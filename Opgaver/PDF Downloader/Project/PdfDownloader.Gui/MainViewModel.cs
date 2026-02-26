@@ -20,6 +20,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _maxSuccessfulDownloads = 10;
 
     private bool _isRunning;
+    private bool _overwriteExisting;
     private string _statusText = "Ready.";
     private CancellationTokenSource? _cts;
 
@@ -48,7 +49,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         get => _isRunning;
         private set { _isRunning = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanStart)); OnPropertyChanged(nameof(CanCancel)); }
     }
-
+    public bool OverwriteExisting
+    {
+        get => _overwriteExisting;
+        set
+        {
+            _overwriteExisting = value;
+            OnPropertyChanged();
+        }
+    }
     public bool CanStart => !IsRunning;
     public bool CanCancel => IsRunning;
 
@@ -82,6 +91,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         Directory.CreateDirectory(OutputFolder);
 
+        if (!OverwriteExisting &&
+        Directory.Exists(OutputFolder) &&
+        Directory.EnumerateFiles(OutputFolder, "*.pdf").Any())
+        {
+            StatusText = "Existing files will be skipped.";
+        }
+
         IsRunning = true;
         StatusText = "Running...";
         Rows.Clear();
@@ -103,7 +119,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             DownloadOptions options = new DownloadOptions(
                 maxSuccessfulDownloads: MaxSuccessfulDownloads,
-                statusFileRelativePath: "status.csv");
+                statusFileRelativePath: "status.csv",
+                overwriteExisting: OverwriteExisting);
 
             IReadOnlyList<DownloadStatusRow> rows =
                 await runner.RunAsync(records, options, _cts.Token);
@@ -141,12 +158,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static HttpClient CreateHttpClient()
     {
-        HttpClient httpClient = new HttpClient
+        HttpClientHandler handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true
+        };
+
+        HttpClient httpClient = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(20)
         };
 
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("PdfDownloader.Gui/1.0");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("PdfDownloader/1.0");
         return httpClient;
     }
 

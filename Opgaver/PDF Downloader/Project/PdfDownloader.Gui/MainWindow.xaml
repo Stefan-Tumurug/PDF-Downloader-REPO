@@ -33,9 +33,16 @@
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+
             <TextBlock Text="Max downloads:" Width="90" VerticalAlignment="Center"/>
-            <TextBox Width="120" Text="{Binding Vm.MaxSuccessfulDownloads, UpdateSourceTrigger=PropertyChanged}"/>
-            <TextBlock Text="{Binding Vm.StatusText}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+            <TextBox Width="120"
+             Text="{Binding Vm.MaxSuccessfulDownloads, UpdateSourceTrigger=PropertyChanged}"/>
+            <CheckBox Content="Overwrite existing files"
+              Margin="16,0,0,0"
+              IsChecked="{Binding Vm.OverwriteExisting}"/>
+            <TextBlock Text="{Binding Vm.StatusText}"
+               Margin="16,0,0,0"
+               VerticalAlignment="Center"/>
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">

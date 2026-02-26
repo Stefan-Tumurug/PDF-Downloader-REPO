@@ -32,6 +32,11 @@ public sealed class DownloadRunner
         _statusWriter = statusWriter;
     }
 
+    private static bool IsSupportedScheme(Uri url)
+    {
+        return url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps;
+    }
+
     /// <summary>
     /// Executes the download run.
     /// Stops after reaching the configured number of successful downloads.
@@ -63,7 +68,7 @@ public sealed class DownloadRunner
                 continue;
             }
 
-            if (_fileStore.Exists(pdfFileName))
+            if (_fileStore.Exists(pdfFileName) && !options.OverwriteExisting)
             {
                 rows.Add(CreateRow(record.BrNum, string.Empty, DownloadStatus.SkippedExists, "File already exists."));
                 continue;
@@ -124,9 +129,9 @@ public sealed class DownloadRunner
     {
         DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, cancellationToken);
 
-        if (!attempt.IsSuccess)
+        if (!IsSupportedScheme(url))
         {
-            return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
+            return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, $"Unsupported URL scheme: {url.Scheme}");
         }
 
         await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
