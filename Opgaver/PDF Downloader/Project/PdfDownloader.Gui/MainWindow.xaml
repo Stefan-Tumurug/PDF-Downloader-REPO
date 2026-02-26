@@ -1,12 +1,64 @@
 ﻿<Window x:Class="PdfDownloader.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:PdfDownloader.Gui"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="PDF Downloader" Height="650" Width="980"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Excel path:" Width="90" VerticalAlignment="Center"/>
+            <TextBox Width="640"
+             Text="{Binding Vm.XlsxPath, UpdateSourceTrigger=PropertyChanged}"
+             Margin="0,0,8,0"/>
+            <Button Content="Browse..."
+            Width="80"
+            Command="{Binding BrowseExcelCommand}"/>
+        </StackPanel>
 
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Output folder:" Width="90" VerticalAlignment="Center"/>
+            <TextBox Width="640"
+             Text="{Binding Vm.OutputFolder, UpdateSourceTrigger=PropertyChanged}"
+             Margin="0,0,8,0"/>
+            <Button Content="Browse..."
+            Width="80"
+            Command="{Binding BrowseOutputCommand}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Max downloads:" Width="90" VerticalAlignment="Center"/>
+            <TextBox Width="120" Text="{Binding Vm.MaxSuccessfulDownloads, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBlock Text="{Binding Vm.StatusText}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
+            <Button Content="Start" Width="120" Margin="0,0,8,0" Command="{Binding StartCommand}"/>
+            <Button Content="Cancel" Width="120" Command="{Binding CancelCommand}"/>
+            <TextBlock Margin="16,0,0,0" VerticalAlignment="Center">
+            <Run Text="{Binding Vm.DownloadedCount, Mode=OneWay}"/>
+            <Run Text="{Binding Vm.FailedCount, Mode=OneWay}"/>
+            <Run Text="{Binding Vm.SkippedCount, Mode=OneWay}"/>
+            </TextBlock>
+        </StackPanel>
+
+        <DataGrid Grid.Row="4"
+                  ItemsSource="{Binding Vm.Rows}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="BR" Binding="{Binding BrNum}" Width="120"/>
+                <DataGridTextColumn Header="Attempted URL" Binding="{Binding AttemptedUrl}" Width="*"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="140"/>
+                <DataGridTextColumn Header="Error" Binding="{Binding Error}" Width="260"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Window>
