@@ -7,7 +7,7 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
-  build-and-test:
+  linux-core:
     name: Build & Test (Core/CLI/Tests)
     runs-on: ubuntu-latest
     steps:
@@ -20,15 +20,15 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore "src/PdfDownloader.slnx" --exclude "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj"
+        run: dotnet restore
 
-      - name: Build
-        run: dotnet build "src/PdfDownloader.slnx" --no-restore -c Release --exclude "src/PdfDownloader.Gui/PdfDownloader.Gui.csproj"
+      - name: Build CLI (includes Core)
+        run: dotnet build "src/PdfDownloader.Cli/PdfDownloader.Cli.csproj" --no-restore -c Release
 
       - name: Test
-        run: dotnet test "tests/PdfDownloader.Tests/PdfDownloader.Tests.csproj" -c Release
+        run: dotnet test "tests/PdfDownloader.Tests/PdfDownloader.Tests.csproj" --no-restore -c Release
 
-  build-gui:
+  windows-gui:
     name: Build (GUI)
     runs-on: windows-latest
     steps:
