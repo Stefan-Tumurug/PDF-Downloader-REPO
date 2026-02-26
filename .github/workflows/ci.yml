@@ -20,10 +20,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore "Opgaver/PDF Downloader/Project/PdfDownloader.slnx"
+        run: dotnet restore "src/PdfDownloader.slnx"
 
       - name: Build
-        run: dotnet build "Opgaver/PDF Downloader/Project/PdfDownloader.slnx" --no-restore -c Release
+        run: dotnet build "src/PdfDownloader.slnx" --no-restore -c Release
 
       - name: Test
-        run: dotnet test "Opgaver/PDF Downloader/Project/PdfDownloader.slnx" --no-build -c Release
+        run: dotnet test "src/PdfDownloader.slnx" --no-build -c Release

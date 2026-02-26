@@ -33,7 +33,7 @@ Each run is intentionally limited to **10 successful downloads** to prevent exce
 ## Project Structure
 
 | Project | Responsibility |
-|--||
+|---------|---------------|
 | **PdfDownloader.Core** | Domain logic and orchestration |
 | **PdfDownloader.Cli** | Console interface (composition root) |
 | **PdfDownloader.Gui** | WPF graphical interface |
@@ -43,6 +43,15 @@ The Core layer contains no UI or infrastructure concerns.
 
 
 ## How to Run
+
+
+## Sample Data
+
+Sample input data is located in:
+
+```
+data/
+```
 
 ### CLI
 
@@ -61,7 +70,7 @@ dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>
 Example:
 
 ```bash
-dotnet run --project ".\PdfDownloader.Cli\" -- "C:\data\GRI_2017_2020.xlsx" "C:\out"
+dotnet run --project ".\src\PdfDownloader.Cli\" -- "data\GRI_2017_2020.xlsx" "out"
 ```
 
 Press **Ctrl+C** to cancel execution.
@@ -158,7 +167,7 @@ These are expected and recorded in `status.csv`.
 Additional documentation is located in:
 
 ```
-Opgaver/PDF Downloader/Documentation (Danish)
+docs/
 ```
 
 
