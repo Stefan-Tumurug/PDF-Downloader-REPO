@@ -1,111 +1,191 @@
 # PDF Downloader
 ![CI](https://github.com/Stefan-Tumurug/PDF-Downloader-REPO/actions/workflows/ci.yml/badge.svg)
+
 ## Overview
 
-PDF Downloader is a .NET console application that reads report metadata from an Excel dataset and downloads valid PDF reports to a specified output folder.
+PDF Downloader is a layered .NET application that reads report metadata from an Excel dataset and downloads valid PDF reports to a specified output folder.
 
-The project is structured using a layered architecture (Core / CLI / Tests) to separate orchestration logic from infrastructure and presentation.
-The solution is designed to be testable, maintainable, and easy to extend.
+The system is designed around separation of concerns and SOLID principles, allowing multiple user interfaces (CLI and GUI) to reuse the same orchestration logic.
 
-This project is a prototype and intentionally limits each run to **10 successful PDF downloads**.
+Each run is intentionally limited to **10 successful downloads** to prevent excessive network usage.
+
 
 ## Features
 
-- Reads report metadata from `GRI_2017_2020.xlsx`
+- Reads report metadata from Excel (`.xlsx`)
 - Maps rows to domain objects (`ReportRecord`)
-- Downloads PDFs using primary URL with fallback support
-- Validates files by checking `%PDF-` header (prevents HTML being saved as PDF)
-- Saves files as `<BRnum>.pdf`
-- Stops after **10 successful downloads**
+- Downloads PDFs using:
+  - Primary URL
+  - Fallback URL (if provided)
+- Validates files using `%PDF-` header check
+- Supports retry for transient HTTP failures
 - Writes `status.csv` with:
   - BR number
   - Attempted URL
   - Status (Downloaded / Failed / SkippedExists)
   - Error message
 - Continues execution even if individual downloads fail
-- Prints summary counts to console
+- Supports cancellation (Ctrl+C in CLI / Cancel in GUI)
+- Optional overwrite of existing output files
+- Stops after **10 successful downloads**
+
 
 ## Project Structure
 
-PdfDownloader.Core - Domain, orchestration and abstractions  
-PdfDownloader.Cli - Console entry point (composition root)  
-PdfDownloader.Tests - Unit tests (planned / in progress)
+| Project | Responsibility |
+|--||
+| **PdfDownloader.Core** | Domain logic and orchestration |
+| **PdfDownloader.Cli** | Console interface (composition root) |
+| **PdfDownloader.Gui** | WPF graphical interface |
+| **PdfDownloader.Tests** | Unit tests with deterministic fakes |
+
+The Core layer contains no UI or infrastructure concerns.
+
 
 ## How to Run
 
-### Option 1: Run from Visual Studio (no arguments)
+### CLI
 
-Press **Run** in Visual Studio.
+Run without arguments:
 
-If no arguments are provided, the program automatically uses:
+```bash
+dotnet run --project ".\PdfDownloader.Cli\"
+```
 
-- `data/GRI_2017_2020.xlsx`
-- `out/`
+Run with explicit arguments:
 
-These paths are resolved relative to the repository root.
-
-### Option 2: Run from terminal (explicit arguments)
-
-From the `Project` folder:
-
-`dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>"`
+```bash
+dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>"
+```
 
 Example:
 
-`dotnet run --project ".\PdfDownloader.Cli\" -- "C:\data\GRI_2017_2020.xlsx" "C:\out"`
+```bash
+dotnet run --project ".\PdfDownloader.Cli\" -- "C:\data\GRI_2017_2020.xlsx" "C:\out"
+```
+
+Press **Ctrl+C** to cancel execution.
+
+
+
+### GUI
+
+Set `PdfDownloader.Gui` as startup project in Visual Studio.
+
+The GUI allows:
+
+- Browsing for Excel file
+- Selecting output folder
+- Choosing whether to overwrite existing files
+- Cancelling downloads
+- Viewing per-record results
+
 
 ## Output
 
 The output folder will contain:
 
-- Up to 10 PDF files named `<BRnum>.pdf`
-- `status.csv` describing the result of each attempted download
+- PDF files named:
 
-Console output includes:
+```
+<BRnum>.pdf
+```
 
-- Total records loaded
-- Downloaded / Failed / Skipped counts
-- Output folder path
-- Status file path
+- A generated:
+
+```
+status.csv
+```
+
+Each row describes:
+
+- BR number
+- Attempted URL
+- Result status
+- Error message (if applicable)
+
+
 
 ## Architecture
 
-The application follows SOLID principles:
+The system follows SOLID principles:
 
 - `DownloadRunner` coordinates the workflow
-- Infrastructure concerns are abstracted via interfaces:
+- Infrastructure is abstracted via interfaces:
   - `IHttpDownloader`
   - `IFileStore`
   - `IStatusWriter`
-- CLI acts only as composition root
-- Core contains no direct HTTP or file system logic
+- Core contains no HTTP or file system logic
+- CLI and GUI act purely as presentation layers
 
-This makes the system testable and extensible.
+The download workflow supports an **OverwriteExisting** option via:
+
+```
+DownloadOptions
+```
+
+This allows the UI layer to control behavior without changing domain logic.
+
+
+
+## CI
+
+GitHub Actions automatically runs:
+
+- Restore
+- Build
+- Unit tests
+
+on every push and pull request.
+
+
+
+## Known Limitations
+
+Some external links may fail due to:
+
+- Dead hosts
+- Redirects
+- Forbidden access (403)
+- HTML pages disguised as PDFs
+
+These are expected and recorded in `status.csv`.
+
+
 
 ## Documentation
 
-Additional documentation (UML diagrams, use cases, fremgangsmaade, tidsregistrering) is located in:
+Additional documentation is located in:
 
-`Opgaver/PDF Downloader/Documentation (Danish)`
+```
+Opgaver/PDF Downloader/Documentation (Danish)
+```
+
+
 
 ## Technology
 
 - .NET
 - C#
-- ClosedXML (Excel parsing)
+- WPF
+- ClosedXML
 - MSTest
 
-## Notes
 
-This implementation is intentionally limited to 10 successful downloads per run to avoid excessive network usage during development.
 
-The original reference implementation was written in Python.
-C# was chosen to better demonstrate object-oriented design, layering, and testability.
+## Design Goals
 
-## Possible Next Steps
+- Clean separation between UI and orchestration
+- Testable domain logic
+- Deterministic unit tests
+- Extensible architecture
 
-- Expand unit test coverage (edge cases, failure scenarios)
-- Improve CLI input validation and error messages
-- Add retry / timeout handling to HTTP downloads
-- Remove download limit for production use
-- Add CI pipeline and coverage reporting
+
+
+## Possible Future Improvements
+
+- Better redirect handling
+- Parallel downloads
+- Progress reporting
+- Resume support
+- Configurable download limit
