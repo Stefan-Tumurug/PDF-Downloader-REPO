@@ -197,4 +197,3 @@ docs/
 - Parallel downloads
 - Progress reporting
 - Resume support
-- Configurable download limit

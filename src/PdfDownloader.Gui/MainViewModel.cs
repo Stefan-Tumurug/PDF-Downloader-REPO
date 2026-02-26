@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Windows;
 using MessageBox = System.Windows.MessageBox;
 
@@ -165,7 +166,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         HttpClient httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(20)
+            // Timeout is handled per request in the Core layer.
+            Timeout = Timeout.InfiniteTimeSpan
         };
 
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("PdfDownloader/1.0");

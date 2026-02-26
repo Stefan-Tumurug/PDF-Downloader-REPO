@@ -74,7 +74,7 @@ public sealed class DownloadRunner
                 continue;
             }
 
-            DownloadStatusRow result = await ProcessRecordAsync(record, pdfFileName, cancellationToken);
+            DownloadStatusRow result = await ProcessRecordAsync(record, pdfFileName, options, cancellationToken);
             rows.Add(result);
 
             if (result.Status == DownloadStatus.Downloaded)
@@ -94,12 +94,13 @@ public sealed class DownloadRunner
     private async Task<DownloadStatusRow> ProcessRecordAsync(
         ReportRecord record,
         string pdfRelativePath,
+        DownloadOptions options,
         CancellationToken cancellationToken)
     {
         if (record.PrimaryUrl is not null)
         {
             DownloadStatusRow primaryRow =
-                await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, cancellationToken);
+                await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, options, cancellationToken);
 
             if (primaryRow.Status == DownloadStatus.Downloaded)
             {
@@ -115,7 +116,7 @@ public sealed class DownloadRunner
 
         if (record.FallbackUrl is not null)
         {
-            return await TryDownloadAndSaveAsync(record, record.FallbackUrl, pdfRelativePath, cancellationToken);
+            return await TryDownloadAndSaveAsync(record, record.FallbackUrl, pdfRelativePath, options, cancellationToken);
         }
 
         return CreateRow(record.BrNum, string.Empty, DownloadStatus.Failed, "No URL available.");
@@ -125,20 +126,29 @@ public sealed class DownloadRunner
         ReportRecord record,
         Uri url,
         string pdfRelativePath,
+        DownloadOptions options,
         CancellationToken cancellationToken)
     {
-        DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, cancellationToken);
-
         if (!IsSupportedScheme(url))
         {
             return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, $"Unsupported URL scheme: {url.Scheme}");
+        }
+
+        DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, options.RequestTimeout, cancellationToken);
+
+        if (!attempt.IsSuccess)
+        {
+            return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
         }
 
         await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
         return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Downloaded, string.Empty);
     }
 
-    private async Task<DownloadAttempt> TryDownloadPdfWithRetryAsync(Uri url, CancellationToken cancellationToken)
+    private async Task<DownloadAttempt> TryDownloadPdfWithRetryAsync(
+        Uri url,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
     {
         DownloadAttempt lastAttempt = DownloadAttempt.Failed("Unknown error.", isTransientFailure: true);
 
@@ -146,7 +156,7 @@ public sealed class DownloadRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            lastAttempt = await TryDownloadPdfOnceAsync(url, cancellationToken);
+            lastAttempt = await TryDownloadPdfOnceAsync(url, requestTimeout, cancellationToken);
 
             if (lastAttempt.IsSuccess)
             {
@@ -171,11 +181,14 @@ public sealed class DownloadRunner
     /// <summary>
     /// Downloads bytes and validates that the response is a PDF.
     /// </summary>
-    private async Task<DownloadAttempt> TryDownloadPdfOnceAsync(Uri url, CancellationToken cancellationToken)
+    private async Task<DownloadAttempt> TryDownloadPdfOnceAsync(
+        Uri url,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
     {
         try
         {
-            byte[] bytes = await _httpDownloader.GetBytesAsync(url, cancellationToken);
+            byte[] bytes = await DownloadBytesWithTimeoutAsync(url, requestTimeout, cancellationToken);
 
             if (!LooksLikePdf(bytes))
             {
@@ -185,10 +198,50 @@ public sealed class DownloadRunner
 
             return DownloadAttempt.Success(bytes);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Respect user cancellation immediately.
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout (linked token cancelled) without the user cancelling the whole run.
+            return DownloadAttempt.Failed($"Timeout after {requestTimeout.TotalSeconds:0} seconds.", isTransientFailure: true);
+        }
+        catch (HttpRequestException ex)
+        {
+            // Retry only likely-transient HTTP errors.
+            bool isTransient = IsTransientHttpFailure(ex.StatusCode);
+            return DownloadAttempt.Failed(ex.Message, isTransientFailure: isTransient);
+        }
         catch (Exception ex)
         {
+            // Network stack errors without a status code are often transient.
             return DownloadAttempt.Failed(ex.Message, isTransientFailure: true);
         }
+    }
+
+    private async Task<byte[]> DownloadBytesWithTimeoutAsync(
+        Uri url,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(requestTimeout);
+        return await _httpDownloader.GetBytesAsync(url, timeoutCts.Token);
+    }
+
+    private static bool IsTransientHttpFailure(System.Net.HttpStatusCode? statusCode)
+    {
+        if (statusCode is null)
+        {
+            return true;
+        }
+
+        int code = (int)statusCode;
+
+        // Typical transient codes: request timeout, too many requests, and server errors.
+        return code == 408 || code == 429 || (code >= 500 && code <= 599);
     }
 
     private static bool TryGetPdfFileName(ReportRecord record, out string pdfFileName, out DownloadStatusRow? invalidRow)

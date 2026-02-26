@@ -5,7 +5,11 @@
 /// </summary>
 public sealed class DownloadOptions
 {
-    public DownloadOptions(int maxSuccessfulDownloads, string statusFileRelativePath, bool overwriteExisting = false)
+    public DownloadOptions(
+        int maxSuccessfulDownloads,
+        string statusFileRelativePath,
+        bool overwriteExisting = false,
+        TimeSpan? requestTimeout = null)
     {
         if (maxSuccessfulDownloads <= 0)
         {
@@ -20,9 +24,18 @@ public sealed class DownloadOptions
         MaxSuccessfulDownloads = maxSuccessfulDownloads;
         StatusFileRelativePath = statusFileRelativePath;
         OverwriteExisting = overwriteExisting;
+
+        // Keep a safe default so the app never "hangs" on dead links.
+        RequestTimeout = requestTimeout ?? TimeSpan.FromSeconds(15);
     }
 
     public bool OverwriteExisting { get; }
     public int MaxSuccessfulDownloads { get; }
     public string StatusFileRelativePath { get; }
+
+    /// <summary>
+    /// Per-request timeout used by the download runner.
+    /// Keeps the workflow responsive even when hosts are unresponsive.
+    /// </summary>
+    public TimeSpan RequestTimeout { get; }
 }

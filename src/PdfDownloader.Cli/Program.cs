@@ -87,7 +87,9 @@ static HttpClient CreateHttpClient()
 {
     HttpClient httpClient = new HttpClient
     {
-        Timeout = TimeSpan.FromSeconds(20)
+        // Timeout is handled per request in the Core layer.
+        // Keep HttpClient infinite to avoid double-timeout behavior.
+        Timeout = Timeout.InfiniteTimeSpan
     };
 
     httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("PdfDownloader/1.0");
