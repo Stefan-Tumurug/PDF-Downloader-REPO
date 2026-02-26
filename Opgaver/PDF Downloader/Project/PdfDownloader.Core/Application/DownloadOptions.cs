@@ -5,7 +5,7 @@
 /// </summary>
 public sealed class DownloadOptions
 {
-    public DownloadOptions(int maxSuccessfulDownloads, string statusFileRelativePath)
+    public DownloadOptions(int maxSuccessfulDownloads, string statusFileRelativePath, bool overwriteExisting = false)
     {
         if (maxSuccessfulDownloads <= 0)
         {
@@ -19,8 +19,10 @@ public sealed class DownloadOptions
 
         MaxSuccessfulDownloads = maxSuccessfulDownloads;
         StatusFileRelativePath = statusFileRelativePath;
+        OverwriteExisting = overwriteExisting;
     }
 
+    public bool OverwriteExisting { get; }
     public int MaxSuccessfulDownloads { get; }
     public string StatusFileRelativePath { get; }
 }
