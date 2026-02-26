@@ -9,6 +9,7 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows;
+using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 
 
@@ -68,6 +69,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set { _statusText = value; OnPropertyChanged(); }
     }
 
+    private double _progressPercent;
+    public double ProgressPercent
+    {
+        get => _progressPercent;
+        private set { _progressPercent = value; OnPropertyChanged(); }
+    }
+
+    private string _progressText = string.Empty;
+    public string ProgressText
+    {
+        get => _progressText;
+        private set { _progressText = value; OnPropertyChanged(); }
+    }
     public ObservableCollection<DownloadStatusRow> Rows { get; } = new();
 
     public int DownloadedCount => Rows.Count(r => r.Status == DownloadStatus.Downloaded);
@@ -101,6 +115,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         IsRunning = true;
         StatusText = "Running...";
+        ProgressPercent = 0;
+        ProgressText = "Starting...";
         Rows.Clear();
         OnCountsChanged();
 
@@ -123,13 +139,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 statusFileRelativePath: "status.csv",
                 overwriteExisting: OverwriteExisting);
 
-            IReadOnlyList<DownloadStatusRow> rows =
-                await runner.RunAsync(records, options, _cts.Token);
-
-            foreach (DownloadStatusRow row in rows)
+            IProgress<DownloadProgress> progress = new Progress<DownloadProgress>(p =>
             {
-                Rows.Add(row);
-            }
+                ProgressPercent = p.Percent;
+
+                string success = $"Success {p.SuccessfulDownloads}/{p.MaxSuccessfulDownloads}";
+                string br = string.IsNullOrWhiteSpace(p.BrNum) ? "" : $"BR {p.BrNum}";
+                string msg = string.IsNullOrWhiteSpace(p.Message) ? "" : p.Message;
+
+                ProgressText = $"{p.Stage} - {br} ({success}) {msg}".Trim();
+
+                // add row live
+                if (p.CompletedRow is not null)
+                {
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        Rows.Add(p.CompletedRow);
+                        OnCountsChanged();
+                    });
+                }
+            });
+
+            IReadOnlyList<DownloadStatusRow> rows =
+            await runner.RunAsync(records, options, _cts.Token, progress);
 
             OnCountsChanged();
             StatusText = "Done.";
@@ -148,8 +180,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _cts.Dispose();
             _cts = null;
             IsRunning = false;
+            if (StatusText == "Done.")
+            {
+                ProgressPercent = 100;
+            }
         }
     }
+
 
     public void Cancel()
     {

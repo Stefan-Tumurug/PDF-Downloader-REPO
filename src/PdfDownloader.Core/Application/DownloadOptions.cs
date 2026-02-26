@@ -27,8 +27,12 @@ public sealed class DownloadOptions
 
         // Keep a safe default so the app never "hangs" on dead links.
         RequestTimeout = requestTimeout ?? TimeSpan.FromSeconds(15);
+
+        // Initialize StatusFilePath to a non-null value.
+        StatusFilePath = statusFileRelativePath;
     }
 
+    public string StatusFilePath { get; }
     public bool OverwriteExisting { get; }
     public int MaxSuccessfulDownloads { get; }
     public string StatusFileRelativePath { get; }

@@ -45,7 +45,8 @@ public sealed class DownloadRunner
     public async Task<IReadOnlyList<DownloadStatusRow>> RunAsync(
         IReadOnlyList<ReportRecord> records,
         DownloadOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<DownloadProgress>? progress = null)
     {
         if (records is null) throw new ArgumentNullException(nameof(records));
         if (options is null) throw new ArgumentNullException(nameof(options));
@@ -53,38 +54,86 @@ public sealed class DownloadRunner
         List<DownloadStatusRow> rows = new();
         int successfulDownloads = 0;
 
-        foreach (ReportRecord record in records)
+        Report(progress, 0, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, "", DownloadStage.Starting, "Starting run");
+
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (successfulDownloads >= options.MaxSuccessfulDownloads)
+            for (int i = 0; i < records.Count; i++)
             {
-                break;
+                ReportRecord record = records[i];
+                int recordIndex = i + 1;
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (successfulDownloads >= options.MaxSuccessfulDownloads)
+                {
+                    break;
+                }
+
+                string br = record.BrNum?.Trim() ?? string.Empty;
+                Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.ProcessingRecord);
+
+                if (!TryGetPdfFileName(record, out string pdfFileName, out DownloadStatusRow? invalidRow))
+                {
+                    rows.Add(invalidRow!);
+                    Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.RecordFailed, invalidRow!.Error);
+                    continue;
+                }
+
+                if (_fileStore.Exists(pdfFileName) && !options.OverwriteExisting)
+                {
+                    DownloadStatusRow skipped = CreateRow(record.BrNum, string.Empty, DownloadStatus.SkippedExists, "File already exists.");
+                    rows.Add(skipped);
+
+                    Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.SkippedExists, "Skipped (exists)");
+                    continue;
+                }
+
+                DownloadStatusRow result = await ProcessRecordAsync(
+                    record,
+                    pdfFileName,
+                    options,
+                    cancellationToken,
+                    progress,
+                    recordIndex,
+                    records.Count,
+                    successfulDownloads);
+
+                rows.Add(result);
+                Report(progress,
+                recordIndex,
+                records.Count,
+                successfulDownloads,
+                options.MaxSuccessfulDownloads,
+                br,
+                DownloadStage.ProcessingRecord,
+                "Completed",
+                TryCreateUri(result.AttemptedUrl),
+                result);
+                if (result.Status == DownloadStatus.Downloaded)
+                {
+                    successfulDownloads++;
+                    Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.RecordSucceeded, "Downloaded", TryCreateUri(result.AttemptedUrl));
+                }
+                else
+                {
+                    Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.RecordFailed, result.Error, TryCreateUri(result.AttemptedUrl));
+                }
             }
 
-            if (!TryGetPdfFileName(record, out string pdfFileName, out DownloadStatusRow? invalidRow))
-            {
-                rows.Add(invalidRow!);
-                continue;
-            }
+            // IMPORTANT: status.csv writing stages
+            Report(progress, records.Count, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, "", DownloadStage.WritingStatusFile, "Writing status.csv");
 
-            if (_fileStore.Exists(pdfFileName) && !options.OverwriteExisting)
-            {
-                rows.Add(CreateRow(record.BrNum, string.Empty, DownloadStatus.SkippedExists, "File already exists."));
-                continue;
-            }
+            await _statusWriter.WriteAsync(options.StatusFileRelativePath, rows, cancellationToken);
 
-            DownloadStatusRow result = await ProcessRecordAsync(record, pdfFileName, options, cancellationToken);
-            rows.Add(result);
-
-            if (result.Status == DownloadStatus.Downloaded)
-            {
-                successfulDownloads++;
-            }
+            Report(progress, records.Count, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, "", DownloadStage.Finished, "Finished run");
+            return rows;
         }
-
-        await _statusWriter.WriteAsync(options.StatusFileRelativePath, rows, cancellationToken);
-        return rows;
+        catch (OperationCanceledException)
+        {
+            Report(progress, 0, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, "", DownloadStage.Cancelled, "Cancelled");
+            throw;
+        }
     }
 
     /// <summary>
@@ -95,12 +144,16 @@ public sealed class DownloadRunner
         ReportRecord record,
         string pdfRelativePath,
         DownloadOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<DownloadProgress>? progress,
+        int recordIndex,
+        int totalRecords,
+        int successfulDownloads)
     {
         if (record.PrimaryUrl is not null)
         {
             DownloadStatusRow primaryRow =
-                await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, options, cancellationToken);
+            await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, options, cancellationToken, progress, recordIndex, totalRecords, successfulDownloads, DownloadStage.TryingPrimary);
 
             if (primaryRow.Status == DownloadStatus.Downloaded)
             {
@@ -116,7 +169,17 @@ public sealed class DownloadRunner
 
         if (record.FallbackUrl is not null)
         {
-            return await TryDownloadAndSaveAsync(record, record.FallbackUrl, pdfRelativePath, options, cancellationToken);
+            return await TryDownloadAndSaveAsync(
+                record,
+                record.FallbackUrl,
+                pdfRelativePath,
+                options,
+                cancellationToken,
+                progress,
+                recordIndex,
+                totalRecords,
+                successfulDownloads,
+                DownloadStage.TryingFallback);
         }
 
         return CreateRow(record.BrNum, string.Empty, DownloadStatus.Failed, "No URL available.");
@@ -127,12 +190,25 @@ public sealed class DownloadRunner
         Uri url,
         string pdfRelativePath,
         DownloadOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<DownloadProgress>? progress,
+        int recordIndex,
+        int totalRecords,
+        int successfulDownloads,
+        DownloadStage entryStage)
     {
         if (!IsSupportedScheme(url))
         {
             return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, $"Unsupported URL scheme: {url.Scheme}");
         }
+
+        string br = record.BrNum ?? string.Empty;
+
+        // Stage: trying primary/fallback
+        Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, entryStage, url.ToString(), url);
+
+        // Stage: downloading
+        Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.Downloading, "Downloading...", url);
 
         DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, options.RequestTimeout, cancellationToken);
 
@@ -141,7 +217,14 @@ public sealed class DownloadRunner
             return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
         }
 
+        // OPTIONAL stage: validating pdf (hvis du vil være ekstra tydelig i UI)
+        Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.ValidatingPdf, "Validating PDF...", url);
+
+        // Stage: saving file
+        Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.SavingFile, "Saving file...", url);
+
         await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
+
         return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Downloaded, string.Empty);
     }
 
@@ -266,8 +349,8 @@ public sealed class DownloadRunner
         return true;
     }
 
-    private static DownloadStatusRow CreateRow(string brNum, string url, DownloadStatus status, string errorMessage)
-        => new(brNum, url, status, errorMessage);
+    private static DownloadStatusRow CreateRow(string? brNum, string url, DownloadStatus status, string errorMessage)
+        => new(brNum?.Trim() ?? string.Empty, url, status, errorMessage);
 
     /// <summary>
     /// PDF files always start with "%PDF-".
@@ -318,5 +401,36 @@ public sealed class DownloadRunner
         public static DownloadAttempt Success(byte[] bytes) => new(true, bytes, string.Empty, false);
         public static DownloadAttempt Failed(string error, bool isTransientFailure)
             => new(false, null, error, isTransientFailure);
+    }
+    private static void Report(
+        IProgress<DownloadProgress>? progress,
+        int recordIndex,
+        int totalRecords,
+        int successfulDownloads,
+        int maxSuccessfulDownloads,
+        string brNum,
+        DownloadStage stage,
+        string message = "",
+        Uri? attemptedUrl = null,
+        DownloadStatusRow? completedRow = null)
+    {
+        if (progress is null) return;
+
+        progress.Report(new DownloadProgress(
+            recordIndex,
+            totalRecords,
+            successfulDownloads,
+            maxSuccessfulDownloads,
+            brNum,
+            stage,
+            message,
+            attemptedUrl,
+            completedRow));
+    }
+
+    private static Uri? TryCreateUri(string attemptedUrl)
+    {
+        if (string.IsNullOrWhiteSpace(attemptedUrl)) return null;
+        return Uri.TryCreate(attemptedUrl, UriKind.Absolute, out Uri? uri) ? uri : null;
     }
 }
