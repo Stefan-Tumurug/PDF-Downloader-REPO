@@ -11,6 +11,7 @@ using System.Threading;
 using System.Windows;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 
 namespace PdfDownloader.Gui;
@@ -20,20 +21,124 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _xlsxPath = string.Empty;
     private string _outputFolder = string.Empty;
     private int _maxSuccessfulDownloads = 10;
-
+    public ObservableCollection<SelectableReportRecord> Records { get; } = new();
     private bool _isRunning;
     private bool _overwriteExisting;
     private string _statusText = "Ready.";
     private CancellationTokenSource? _cts;
-
+    public bool CanLoadRows => !IsRunning && File.Exists(XlsxPath);
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    // --- Preview range (1-based start, inclusive end) ---
+    private const int MaxPreviewRows = 20000;
+
+    private string _previewStartText = "1";
+    public string PreviewStartText
+    {
+        get => _previewStartText;
+        set
+        {
+            if (_previewStartText == value) return;
+            _previewStartText = value;
+            OnPropertyChanged();
+
+            if (TryReadInt(value, out int parsed))
+            {
+                PreviewStart = parsed;
+            }
+        }
+    }
+
+    private string _previewEndText = "200";
+    public string PreviewEndText
+    {
+        get => _previewEndText;
+        set
+        {
+            if (_previewEndText == value) return;
+            _previewEndText = value;
+            OnPropertyChanged();
+
+            if (TryReadInt(value, out int parsed))
+            {
+                PreviewEnd = parsed;
+            }
+        }
+    }
+
+    private int _previewStart = 1;
+    public int PreviewStart
+    {
+        get => _previewStart;
+        private set
+        {
+            int clamped = Clamp(value, min: 1, max: MaxPreviewRows);
+            if (_previewStart == clamped) return;
+            _previewStart = clamped;
+            OnPropertyChanged();
+
+            // Hold teksten i sync hvis user skrev noget "skævt"
+            if (_previewStartText != clamped.ToString())
+            {
+                _previewStartText = clamped.ToString();
+                OnPropertyChanged(nameof(PreviewStartText));
+            }
+        }
+    }
+
+    private int _previewEnd = 200;
+    public int PreviewEnd
+    {
+        get => _previewEnd;
+        private set
+        {
+            int clamped = Clamp(value, min: 1, max: MaxPreviewRows);
+            if (_previewEnd == clamped) return;
+            _previewEnd = clamped;
+            OnPropertyChanged();
+
+            if (_previewEndText != clamped.ToString())
+            {
+                _previewEndText = clamped.ToString();
+                OnPropertyChanged(nameof(PreviewEndText));
+            }
+        }
+    }
+
+    public int PreviewCount
+    {
+        get
+        {
+            int start = PreviewStart;
+            int end = PreviewEnd;
+
+            if (end < start) return 0;
+            return end - start + 1;
+        }
+    }
+
+    // Small helpers (kun én gang i klassen)
+    private static bool TryReadInt(string? text, out int value)
+        => int.TryParse(text, out value);
+
+    private static int Clamp(int value, int min, int max)
+    {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+    }
+
 
     public string XlsxPath
     {
         get => _xlsxPath;
-        set { _xlsxPath = value; OnPropertyChanged(); }
+        set
+        {
+            _xlsxPath = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanLoadRows));
+        }
     }
-
     public string OutputFolder
     {
         get => _outputFolder;
@@ -88,6 +193,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int FailedCount => Rows.Count(r => r.Status == DownloadStatus.Failed);
     public int SkippedCount => Rows.Count(r => r.Status == DownloadStatus.SkippedExists);
 
+
     public async Task StartAsync()
     {
         if (IsRunning) return;
@@ -112,7 +218,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             StatusText = "Existing files will be skipped.";
         }
+        if (Records.Count == 0)
+        {
+            await LoadRecordsAsync();
+        }
 
+        IReadOnlyList<ReportRecord> records = GetSelectedRecordsOrShowError();
+        if (records.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
         IsRunning = true;
         StatusText = "Running...";
         ProgressPercent = 0;
@@ -121,11 +237,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnCountsChanged();
 
         _cts = new CancellationTokenSource();
-
+        // Ensure records are loaded for selection UI
+        if (Records.Count == 0)
+        {
+            await LoadRecordsAsync();
+        }
         try
         {
             ExcelReportSource source = new ExcelReportSource(XlsxPath);
-            IReadOnlyList<ReportRecord> records = source.ReadAll();
+            // Rename the inner 'records' variable to avoid shadowing
+            IReadOnlyList<ReportRecord> allRecords = source.ReadAll();
 
             using HttpClient httpClient = CreateHttpClient();
 
@@ -160,8 +281,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             });
 
+            // Use the outer 'records' variable here
             IReadOnlyList<DownloadStatusRow> rows =
             await runner.RunAsync(records, options, _cts.Token, progress);
+
+            OnPropertyChanged(nameof(CanStart));
+            OnPropertyChanged(nameof(CanCancel));
 
             OnCountsChanged();
             StatusText = "Done.";
@@ -186,8 +311,90 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
         }
     }
+    public void SelectAllRecords()
+    {
+        foreach (SelectableReportRecord r in Records)
+        {
+            r.IsSelected = true;
+        }
+    }
 
+    public void ClearSelection()
+    {
+        foreach (SelectableReportRecord r in Records)
+        {
+            r.IsSelected = false;
+        }
+    }
+    private IReadOnlyList<ReportRecord> GetSelectedRecordsOrShowError()
+    {
+        List<ReportRecord> selected = Records
+            .Where(r => r.IsSelected)
+            .Select(r => r.Record)
+            .ToList();
 
+        if (selected.Count == 0)
+        {
+            MessageBox.Show("No rows selected. Select at least one row.", "Selection", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        return selected;
+    }
+    public async Task LoadRecordsAsync()
+    {
+        if (!File.Exists(XlsxPath))
+        {
+            MessageBox.Show("Excel file not found.", "Input error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            StatusText = "Reading Excel...";
+            Records.Clear();
+
+            ExcelReportSource source = new ExcelReportSource(XlsxPath);
+            IReadOnlyList<ReportRecord> records = source.ReadAll();
+
+            int total = records.Count;
+
+            int startIndexZeroBased = PreviewStart - 1; // 1-based UI -> 0-based list
+            if (startIndexZeroBased >= total)
+            {
+                StatusText = $"Preview start ({PreviewStart}) is beyond total rows ({total}).";
+                return;
+            }
+
+            int count = PreviewCount;
+            if (count <= 0)
+            {
+                StatusText = $"Invalid range: {PreviewStart}-{PreviewEnd}.";
+                return;
+            }
+
+            IEnumerable<ReportRecord> slice =
+                records
+                    .Skip(startIndexZeroBased)
+                    .Take(count);
+
+            foreach (ReportRecord record in slice)
+            {
+                Records.Add(new SelectableReportRecord(record, isSelected: true));
+            }
+
+            int loadedFrom = PreviewStart;
+            int loadedTo = Math.Min(PreviewEnd, total);
+
+            StatusText = $"Loaded {Records.Count}/{total} rows into UI (range: {loadedFrom}-{loadedTo}).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Failed to load Excel rows.";
+            MessageBox.Show(ex.ToString(), "Excel load failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        await Task.CompletedTask;
+    }
     public void Cancel()
     {
         if (!IsRunning) return;
@@ -220,9 +427,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-    public void BrowseExcel()
+    public async Task BrowseExcelAsync()
     {
-        Microsoft.Win32.OpenFileDialog dialog = new Microsoft.Win32.OpenFileDialog
+        OpenFileDialog dialog = new OpenFileDialog
         {
             Filter = "Excel Files (*.xlsx)|*.xlsx",
             Title = "Select Excel file"
@@ -230,10 +437,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         bool? result = dialog.ShowDialog();
 
-        if (result == true)
-        {
-            XlsxPath = dialog.FileName;
-        }
+        if (result != true) return;
+
+        XlsxPath = dialog.FileName;
+        await LoadRecordsAsync();
     }
 
     public void BrowseOutputFolder()

@@ -4,16 +4,10 @@
         Title="PDF Downloader"
         Height="650"
         Width="980"
+        MinWidth="860"
+        MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="#FFF6F7F9">
-
-    <!--
-        UI-only improvements:
-        - Card layout
-        - App-like styles (buttons, inputs, grid)
-        - Keeps the same bindings/commands and ViewModel properties
-        - No business logic changes
-    -->
 
     <Window.Resources>
 
@@ -130,8 +124,10 @@
             <!-- inputs -->
             <RowDefinition Height="Auto"/>
             <!-- actions + progress -->
+            <RowDefinition Height="2*"/>
+            <!-- selection -->
             <RowDefinition Height="*"/>
-            <!-- grid -->
+            <!-- results -->
         </Grid.RowDefinitions>
 
         <!-- =========================
@@ -215,6 +211,7 @@
                 <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
                             Orientation="Horizontal"
                             Margin="0,2,0,0">
+
                     <TextBlock Text="Download limit:"
                                Style="{StaticResource LabelText}"
                                Margin="0,0,8,0"/>
@@ -222,11 +219,31 @@
                     <TextBox Width="80"
                              Text="{Binding Vm.MaxSuccessfulDownloads, UpdateSourceTrigger=PropertyChanged}"/>
 
+                    <TextBlock Text="Preview rows:"
+                               Style="{StaticResource LabelText}"
+                               Margin="16,0,8,0"/>
+
+                    <TextBox Width="70"
+                             Text="{Binding Vm.PreviewStartText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Start row (1-based)"/>
+
+                    <TextBlock Text="to"
+                               Style="{StaticResource LabelText}"
+                               Margin="8,0,8,0"/>
+
+                    <TextBox Width="70"
+                             Text="{Binding Vm.PreviewEndText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="End row (1-based)"/>
+
+                    <Button Content="Reload"
+                            Margin="12,0,0,0"
+                            Command="{Binding LoadCommand}"/>
+
                     <CheckBox Content="Overwrite existing files"
                               Margin="16,0,0,0"
                               IsChecked="{Binding Vm.OverwriteExisting}"/>
 
-                    <TextBlock Text="Tip: Keep the limit low to avoid excessive network usage."
+                    <TextBlock Text="Tip: Load uses the range above."
                                Style="{StaticResource HintText}"
                                Margin="16,0,0,0"
                                VerticalAlignment="Center"/>
@@ -289,9 +306,9 @@
                                Margin="0,0,0,8"/>
 
                     <ProgressBar Height="16"
-                     Minimum="0"
-                     Maximum="100"
-                     Value="{Binding Vm.ProgressPercent, Mode=OneWay}" />
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Value="{Binding Vm.ProgressPercent, Mode=OneWay}" />
 
                     <TextBlock Margin="0,10,0,0"
                                Text="{Binding Vm.ProgressText}"
@@ -302,9 +319,134 @@
         </Grid>
 
         <!-- =========================
+             Records to download grid
+             ========================= -->
+        <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,0,0,12" MinHeight="220">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Selection"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+
+                        <TextBlock FontSize="12"
+                                   Opacity="0.75"
+                                   Text="{Binding Vm.Records.Count, StringFormat=Rows loaded: {0}}"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="1"
+                            Content="Select all"
+                            Margin="10,0,0,0"
+                            Command="{Binding SelectAllCommand}"/>
+
+                    <Button Grid.Column="2"
+                            Content="Clear"
+                            Margin="10,0,0,0"
+                            Command="{Binding ClearSelectionCommand}"/>
+                </Grid>
+
+                <!-- DataGrid -->
+                <Grid Grid.Row="1">
+
+                    <!-- Empty state overlay -->
+                    <TextBlock Text="No rows loaded. Click Reload to load the selected range."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Opacity="0.6">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Vm.Records.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <DataGrid ItemsSource="{Binding Vm.Records}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              CanUserReorderColumns="False"
+                              CanUserResizeRows="False"
+                              IsReadOnly="False"
+                              SelectionUnit="FullRow"
+                              SelectionMode="Extended"
+                              IsSynchronizedWithCurrentItem="False"
+                              EnableRowVirtualization="True"
+                              EnableColumnVirtualization="True"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              ScrollViewer.CanContentScroll="True"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.IsDeferredScrollingEnabled="True"
+                              RowHeight="30"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal">
+
+                        <DataGrid.Resources>
+                            <!-- Wrap lange URL'er pænt -->
+                            <Style TargetType="TextBlock">
+                                <Setter Property="TextWrapping" Value="Wrap"/>
+                                <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGrid.Resources>
+
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Sel."
+                                                    Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="60"/>
+
+                            <DataGridTextColumn Header="BR"
+                                                Binding="{Binding BrNum}"
+                                                Width="120"
+                                                IsReadOnly="True"/>
+
+                            <DataGridTemplateColumn Header="Primary URL" Width="*"
+                                                    IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding PrimaryUrl}"
+                                                   ToolTip="{Binding PrimaryUrl}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTemplateColumn Header="Fallback URL" Width="*"
+                                                    IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding FallbackUrl}"
+                                                   ToolTip="{Binding FallbackUrl}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- =========================
              Results grid
              ========================= -->
-        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="0">
+        <Border Grid.Row="4" Style="{StaticResource Card}" Padding="0">
             <DataGrid ItemsSource="{Binding Vm.Rows}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
