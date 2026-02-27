@@ -1,3 +1,4 @@
+
 # PDF Downloader
 ![CI](https://github.com/Stefan-Tumurug/PDF-Downloader-REPO/actions/workflows/ci.yml/badge.svg)
 
@@ -5,10 +6,12 @@
 
 PDF Downloader is a layered .NET application that reads report metadata from an Excel dataset and downloads valid PDF reports to a specified output folder.
 
-The system is designed around separation of concerns and SOLID principles, allowing multiple user interfaces (CLI and GUI) to reuse the same orchestration logic.
+The system is built around separation of concerns and SOLID principles.  
+Both the CLI and GUI reuse the same orchestration logic from the Core layer.
 
-Each run is intentionally limited to **10 successful downloads** to prevent excessive network usage.
+Each run is intentionally limited to **a user-set amount of successful downloads** to prevent excessive network usage.
 
+ 
 
 ## Features
 
@@ -27,13 +30,19 @@ Each run is intentionally limited to **10 successful downloads** to prevent exce
 - Continues execution even if individual downloads fail
 - Supports cancellation (Ctrl+C in CLI / Cancel in GUI)
 - Optional overwrite of existing output files
-- Stops after **10 successful downloads**
+- Stops after **successful download limit is reached**
+- Progress reporting in GUI via:
+  - `DownloadProgress`
+  - `SelectableReportRecord`
+  - `MainViewModel`
+  - `MainWindow.xaml` bindings
 
+ 
 
 ## Project Structure
 
 | Project | Responsibility |
-|---------|---------------|
+|---------|----------------|
 | **PdfDownloader.Core** | Domain logic and orchestration |
 | **PdfDownloader.Cli** | Console interface (composition root) |
 | **PdfDownloader.Gui** | WPF graphical interface |
@@ -41,9 +50,7 @@ Each run is intentionally limited to **10 successful downloads** to prevent exce
 
 The Core layer contains no UI or infrastructure concerns.
 
-
-## How to Run
-
+ 
 
 ## Sample Data
 
@@ -53,29 +60,33 @@ Sample input data is located in:
 data/
 ```
 
+ 
+
+## How to Run
+
 ### CLI
 
 Run without arguments:
 
-```bash
+```
 dotnet run --project ".\PdfDownloader.Cli\"
 ```
 
 Run with explicit arguments:
 
-```bash
+```
 dotnet run --project ".\PdfDownloader.Cli\" -- "<path-to-xlsx>" "<output-folder>"
 ```
 
 Example:
 
-```bash
-dotnet run --project ".\src\PdfDownloader.Cli\" -- "data\GRI_2017_2020.xlsx" "out"
+```
+dotnet run --project ".\PdfDownloader.Cli\" -- "data\GRI_2017_2020.xlsx" "out"
 ```
 
 Press **Ctrl+C** to cancel execution.
 
-
+ 
 
 ### GUI
 
@@ -86,21 +97,25 @@ The GUI allows:
 - Browsing for Excel file
 - Selecting output folder
 - Choosing whether to overwrite existing files
+- Viewing per-record progress
 - Cancelling downloads
-- Viewing per-record results
 
+Progress is reported through the `DownloadRunner` and surfaced via `DownloadProgress`
+to the UI layer.
+
+ 
 
 ## Output
 
 The output folder will contain:
 
-- PDF files named:
+PDF files named:
 
 ```
 <BRnum>.pdf
 ```
 
-- A generated:
+And a generated:
 
 ```
 status.csv
@@ -113,29 +128,50 @@ Each row describes:
 - Result status
 - Error message (if applicable)
 
-
+ 
 
 ## Architecture
 
-The system follows SOLID principles:
+The system follows a layered architecture:
 
-- `DownloadRunner` coordinates the workflow
-- Infrastructure is abstracted via interfaces:
-  - `IHttpDownloader`
-  - `IFileStore`
-  - `IStatusWriter`
-- Core contains no HTTP or file system logic
-- CLI and GUI act purely as presentation layers
+- Presentation layer (CLI / GUI)
+- Core orchestration (`DownloadRunner`)
+- Domain models
+- Infrastructure implementations
 
-The download workflow supports an **OverwriteExisting** option via:
+`DownloadRunner` coordinates the workflow and depends only on abstractions:
+
+- `IHttpDownloader`
+- `IFileStore`
+- `IStatusWriter`
+- `IReportSource`
+
+Infrastructure implementations provide the concrete behavior:
+
+- `HttpClientDownloader`
+- `LocalFileStore`
+- `CsvStatusWriter`
+- `ExcelReportSource`
+
+Progress reporting is implemented through the `IProgress<DownloadProgress>` pattern,
+allowing the Core layer to remain UI-agnostic.
+
+ 
+
+## Documentation
+
+Additional documentation is available in:
 
 ```
-DownloadOptions
+docs/
 ```
 
-This allows the UI layer to control behavior without changing domain logic.
+This includes:
 
+- `architecture.png` — high-level layered architecture
+- `domain-class-diagram.png` — detailed class relationships
 
+ 
 
 ## CI
 
@@ -147,7 +183,7 @@ GitHub Actions automatically runs:
 
 on every push and pull request.
 
-
+ 
 
 ## Known Limitations
 
@@ -160,17 +196,7 @@ Some external links may fail due to:
 
 These are expected and recorded in `status.csv`.
 
-
-
-## Documentation
-
-Additional documentation is located in:
-
-```
-docs/
-```
-
-
+ 
 
 ## Technology
 
@@ -180,7 +206,7 @@ docs/
 - ClosedXML
 - MSTest
 
-
+ 
 
 ## Design Goals
 
@@ -189,11 +215,10 @@ docs/
 - Deterministic unit tests
 - Extensible architecture
 
-
+ 
 
 ## Possible Future Improvements
 
 - Better redirect handling
 - Parallel downloads
-- Progress reporting
 - Resume support
