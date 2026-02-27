@@ -4,19 +4,54 @@ using PdfDownloader.Core.Domain;
 namespace PdfDownloader.Core.Application;
 
 /// <summary>
-/// Coordinates the full download workflow:
-/// - selects primary or fallback URL
-/// - downloads bytes
-/// - validates PDF header
-/// - persists files
-/// - collects status rows
+/// DownloadRunner
 ///
-/// This class contains orchestration logic only.
-/// No direct IO or HTTP implementation details live here.
+/// Purpose
+/// - Coordinates the end-to-end workflow for downloading PDF reports.
+/// - Produces per-record <see cref="DownloadStatusRow"/> results and writes a final status file.
+/// - Reports progress via <see cref="IProgress{T}"/> without depending on any UI framework.
+///
+/// What lives here (Orchestration)
+/// - Choose PrimaryUrl first, then FallbackUrl if needed
+/// - Apply retry policy for transient failures
+/// - Apply per-request timeout (using a linked CancellationToken)
+/// - Validate that downloaded content is a PDF by checking the "%PDF-" header
+/// - Decide whether to skip existing files or overwrite them
+///
+/// What does NOT live here (Infrastructure)
+/// - No direct HTTP implementation (delegated to <see cref="IHttpDownloader"/>)
+/// - No direct file system access (delegated to <see cref="IFileStore"/>)
+/// - No CSV formatting details (delegated to <see cref="IStatusWriter"/>)
+///
+/// Execution Flow (high level)
+/// 1) Iterate records until out of input OR MaxSuccessfulDownloads reached
+/// 2) For each record:
+///    a) Validate BR number and determine file name
+///    b) Skip if file exists and overwrite is disabled
+///    c) Try PrimaryUrl (with retry/timeout + PDF validation)
+///    d) If Primary fails and fallback exists, try FallbackUrl
+///    e) Persist file if success and count toward MaxSuccessfulDownloads
+///    f) Always collect a status row (Downloaded/Failed/SkippedExists)
+/// 3) Write status file at the end (status.csv)
+///
+/// Retry Strategy
+/// - Up to (1 + MaxRetries) attempts per URL.
+/// - Retries only happen for likely-transient failures:
+///   * timeouts
+///   * HTTP 408 / 429 / 5xx
+///   * transport errors without a status code
+/// - Deterministic failures are not retried:
+///   * "Not a PDF" (server returned HTML or other content)
+///   * unsupported URL scheme
+///
+/// Cancellation & Timeouts
+/// - A user CancellationToken cancels the whole run immediately.
+/// - Per-request timeout is implemented by linking a timeout token to the user token.
+///   If the timeout triggers, it is treated as transient and may be retried.
 /// </summary>
 public sealed class DownloadRunner
 {
-    private const int MaxRetries = 2; // total attempts = 1 + MaxRetries
+    private const int MaxRetries = 2; // Total attempts per URL = 1 + MaxRetries
 
     private readonly IHttpDownloader _httpDownloader;
     private readonly IFileStore _fileStore;
@@ -33,14 +68,17 @@ public sealed class DownloadRunner
     }
 
     private static bool IsSupportedScheme(Uri url)
-    {
-        return url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps;
-    }
+        => url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps;
 
     /// <summary>
-    /// Executes the download run.
-    /// Stops after reaching the configured number of successful downloads.
-    /// Writes a CSV status file after completion.
+    /// Runs the download process for the provided records.
+    ///
+    /// Stops early when:
+    /// - cancellation is requested, or
+    /// - <see cref="DownloadOptions.MaxSuccessfulDownloads"/> is reached.
+    ///
+    /// A status file is written after the loop finishes (even if some records failed),
+    /// so the caller always gets a complete report of what was attempted.
     /// </summary>
     public async Task<IReadOnlyList<DownloadStatusRow>> RunAsync(
         IReadOnlyList<ReportRecord> records,
@@ -60,15 +98,15 @@ public sealed class DownloadRunner
         {
             for (int i = 0; i < records.Count; i++)
             {
-                ReportRecord record = records[i];
-                int recordIndex = i + 1;
-
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (successfulDownloads >= options.MaxSuccessfulDownloads)
                 {
                     break;
                 }
+
+                ReportRecord record = records[i];
+                int recordIndex = i + 1;
 
                 string br = record.BrNum?.Trim() ?? string.Empty;
                 Report(progress, recordIndex, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.ProcessingRecord);
@@ -100,16 +138,20 @@ public sealed class DownloadRunner
                     successfulDownloads);
 
                 rows.Add(result);
-                Report(progress,
-                recordIndex,
-                records.Count,
-                successfulDownloads,
-                options.MaxSuccessfulDownloads,
-                br,
-                DownloadStage.ProcessingRecord,
-                "Completed",
-                TryCreateUri(result.AttemptedUrl),
-                result);
+
+                // Emit a completion snapshot for UI layers that want to update the row display.
+                Report(
+                    progress,
+                    recordIndex,
+                    records.Count,
+                    successfulDownloads,
+                    options.MaxSuccessfulDownloads,
+                    br,
+                    DownloadStage.ProcessingRecord,
+                    "Completed",
+                    TryCreateUri(result.AttemptedUrl),
+                    result);
+
                 if (result.Status == DownloadStatus.Downloaded)
                 {
                     successfulDownloads++;
@@ -121,7 +163,7 @@ public sealed class DownloadRunner
                 }
             }
 
-            // IMPORTANT: status.csv writing stages
+            // Status file is written once at the end for a consistent "single source of truth".
             Report(progress, records.Count, records.Count, successfulDownloads, options.MaxSuccessfulDownloads, "", DownloadStage.WritingStatusFile, "Writing status.csv");
 
             await _statusWriter.WriteAsync(options.StatusFileRelativePath, rows, cancellationToken);
@@ -137,8 +179,11 @@ public sealed class DownloadRunner
     }
 
     /// <summary>
-    /// Attempts to download a single record using primary URL first,
-    /// then fallback URL if necessary.
+    /// Processes one record by trying:
+    /// 1) PrimaryUrl (if present)
+    /// 2) FallbackUrl (if present and primary did not succeed)
+    ///
+    /// This method does not change counters; it only returns the outcome row.
     /// </summary>
     private async Task<DownloadStatusRow> ProcessRecordAsync(
         ReportRecord record,
@@ -153,14 +198,24 @@ public sealed class DownloadRunner
         if (record.PrimaryUrl is not null)
         {
             DownloadStatusRow primaryRow =
-            await TryDownloadAndSaveAsync(record, record.PrimaryUrl, pdfRelativePath, options, cancellationToken, progress, recordIndex, totalRecords, successfulDownloads, DownloadStage.TryingPrimary);
+                await TryDownloadAndSaveAsync(
+                    record,
+                    record.PrimaryUrl,
+                    pdfRelativePath,
+                    options,
+                    cancellationToken,
+                    progress,
+                    recordIndex,
+                    totalRecords,
+                    successfulDownloads,
+                    DownloadStage.TryingPrimary);
 
             if (primaryRow.Status == DownloadStatus.Downloaded)
             {
                 return primaryRow;
             }
 
-            // If there is no fallback, return primary failure.
+            // If primary fails and there is no fallback, we return the primary failure row.
             if (record.FallbackUrl is null)
             {
                 return primaryRow;
@@ -185,6 +240,13 @@ public sealed class DownloadRunner
         return CreateRow(record.BrNum, string.Empty, DownloadStatus.Failed, "No URL available.");
     }
 
+    /// <summary>
+    /// Performs the "download + validate + save" pipeline for a single URL.
+    ///
+    /// Important:
+    /// - Validation happens before writing to disk so we never persist HTML error pages as ".pdf".
+    /// - Retry happens inside <see cref="TryDownloadPdfWithRetryAsync"/> and is based on failure type.
+    /// </summary>
     private async Task<DownloadStatusRow> TryDownloadAndSaveAsync(
         ReportRecord record,
         Uri url,
@@ -204,10 +266,7 @@ public sealed class DownloadRunner
 
         string br = record.BrNum ?? string.Empty;
 
-        // Stage: trying primary/fallback
         Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, entryStage, url.ToString(), url);
-
-        // Stage: downloading
         Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.Downloading, "Downloading...", url);
 
         DownloadAttempt attempt = await TryDownloadPdfWithRetryAsync(url, options.RequestTimeout, cancellationToken);
@@ -217,10 +276,7 @@ public sealed class DownloadRunner
             return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Failed, attempt.ErrorMessage);
         }
 
-        // OPTIONAL stage: validating pdf (hvis du vil være ekstra tydelig i UI)
         Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.ValidatingPdf, "Validating PDF...", url);
-
-        // Stage: saving file
         Report(progress, recordIndex, totalRecords, successfulDownloads, options.MaxSuccessfulDownloads, br, DownloadStage.SavingFile, "Saving file...", url);
 
         await _fileStore.SaveAsync(pdfRelativePath, attempt.Bytes!, cancellationToken);
@@ -228,6 +284,10 @@ public sealed class DownloadRunner
         return CreateRow(record.BrNum, url.ToString(), DownloadStatus.Downloaded, string.Empty);
     }
 
+    /// <summary>
+    /// Downloads a PDF with a small retry policy.
+    /// Retries only happen for transient failures (timeouts, 408/429/5xx, transport errors).
+    /// </summary>
     private async Task<DownloadAttempt> TryDownloadPdfWithRetryAsync(
         Uri url,
         TimeSpan requestTimeout,
@@ -246,12 +306,13 @@ public sealed class DownloadRunner
                 return lastAttempt;
             }
 
-            // Don't retry deterministic failures (e.g. not a PDF)
+            // Deterministic failures are not worth retrying.
             if (!lastAttempt.IsTransientFailure)
             {
                 return lastAttempt;
             }
 
+            // Very small backoff to avoid hammering a server that is temporarily failing.
             if (attemptNo < MaxRetries)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250 * (attemptNo + 1)), cancellationToken);
@@ -262,7 +323,8 @@ public sealed class DownloadRunner
     }
 
     /// <summary>
-    /// Downloads bytes and validates that the response is a PDF.
+    /// Performs a single download attempt and validates the PDF signature.
+    /// Returns a <see cref="DownloadAttempt"/> that also marks whether the failure is transient.
     /// </summary>
     private async Task<DownloadAttempt> TryDownloadPdfOnceAsync(
         Uri url,
@@ -275,6 +337,7 @@ public sealed class DownloadRunner
 
             if (!LooksLikePdf(bytes))
             {
+                // Useful debugging: many endpoints return HTML (login pages, 403 pages, error pages).
                 string preview = ToAsciiPreview(bytes, 32);
                 return DownloadAttempt.Failed($"Not a PDF. First bytes: {preview}", isTransientFailure: false);
             }
@@ -283,23 +346,23 @@ public sealed class DownloadRunner
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Respect user cancellation immediately.
+            // User cancellation: stop immediately, do not convert to a "failure row".
             throw;
         }
         catch (OperationCanceledException)
         {
-            // Timeout (linked token cancelled) without the user cancelling the whole run.
+            // Timeout (linked token cancelled), not user cancellation.
             return DownloadAttempt.Failed($"Timeout after {requestTimeout.TotalSeconds:0} seconds.", isTransientFailure: true);
         }
         catch (HttpRequestException ex)
         {
-            // Retry only likely-transient HTTP errors.
+            // Some HTTP failures are likely transient and worth retrying.
             bool isTransient = IsTransientHttpFailure(ex.StatusCode);
             return DownloadAttempt.Failed(ex.Message, isTransientFailure: isTransient);
         }
         catch (Exception ex)
         {
-            // Network stack errors without a status code are often transient.
+            // Transport-level errors without a status code are commonly transient.
             return DownloadAttempt.Failed(ex.Message, isTransientFailure: true);
         }
     }
@@ -353,7 +416,8 @@ public sealed class DownloadRunner
         => new(brNum?.Trim() ?? string.Empty, url, status, errorMessage);
 
     /// <summary>
-    /// PDF files always start with "%PDF-".
+    /// PDF files start with the ASCII signature "%PDF-".
+    /// This is a cheap sanity check that prevents saving HTML or error pages as PDF files.
     /// </summary>
     private static bool LooksLikePdf(byte[] bytes)
     {
@@ -366,8 +430,8 @@ public sealed class DownloadRunner
     }
 
     /// <summary>
-    /// Converts the first bytes to printable ASCII for debugging.
-    /// Used when servers return HTML instead of PDF.
+    /// Converts the first N bytes to printable ASCII (non-printables become '.').
+    /// Used for debugging when content is not a PDF.
     /// </summary>
     private static string ToAsciiPreview(byte[] bytes, int maxBytes)
     {
@@ -383,6 +447,10 @@ public sealed class DownloadRunner
         return new string(chars);
     }
 
+    /// <summary>
+    /// Internal result type that classifies failures as transient or deterministic
+    /// to drive the retry policy.
+    /// </summary>
     private sealed class DownloadAttempt
     {
         private DownloadAttempt(bool isSuccess, byte[]? bytes, string errorMessage, bool isTransientFailure)
@@ -399,9 +467,11 @@ public sealed class DownloadRunner
         public bool IsTransientFailure { get; }
 
         public static DownloadAttempt Success(byte[] bytes) => new(true, bytes, string.Empty, false);
+
         public static DownloadAttempt Failed(string error, bool isTransientFailure)
             => new(false, null, error, isTransientFailure);
     }
+
     private static void Report(
         IProgress<DownloadProgress>? progress,
         int recordIndex,

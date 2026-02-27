@@ -7,13 +7,28 @@ using System.Text;
 
 namespace PdfDownloader.Tests.Application;
 
+/// <summary>
+/// Additional behavioral tests for <see cref="DownloadRunner"/>.
+/// 
+/// Focus:
+/// - Edge cases and policy decisions (overwrite, URL scheme validation, retry rules, fallback behavior)
+/// 
+/// These tests use deterministic test doubles (no network/disk)
+/// to validate orchestration logic in isolation.
+/// </summary>
 [TestClass]
 public sealed class DownloadRunnerAdditionalTests
 {
+    /// <summary>
+    /// Ensures that when overwrite is enabled:
+    /// - existing output files do not cause a skip
+    /// - the new bytes replace the old bytes on disk
+    /// - exactly one HTTP call is made for the record
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_FileExists_WithOverwriteTrue_DownloadsAndReplacesFile()
     {
-        // Arrange
+        // Arrange: deterministic fakes to isolate runner behavior
         FakeHttpDownloader http = new();
         InMemoryFileStore fileStore = new();
         FakeStatusWriter statusWriter = new();
@@ -41,7 +56,7 @@ public sealed class DownloadRunnerAdditionalTests
             options: options,
             cancellationToken: CancellationToken.None);
 
-        // Assert
+        // Assert: correct status + file content replaced
         Assert.HasCount(1, rows);
         Assert.AreEqual(DownloadStatus.Downloaded, rows[0].Status);
 
@@ -53,6 +68,11 @@ public sealed class DownloadRunnerAdditionalTests
         Assert.AreEqual(url.ToString(), http.RequestedUrls[0]);
     }
 
+    /// <summary>
+    /// Ensures that non-HTTP schemes are rejected early:
+    /// - no HTTP request is performed
+    /// - record ends as Failed with a clear error message
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_UnsupportedUrlScheme_FailsWithoutHttpCall()
     {
@@ -79,6 +99,10 @@ public sealed class DownloadRunnerAdditionalTests
         Assert.HasCount(0, http.RequestedUrls, "No HTTP call should be made for unsupported schemes.");
     }
 
+    /// <summary>
+    /// Ensures that deterministic "Not a PDF" responses are NOT retried.
+    /// This protects hosts from repeated requests when the URL points to HTML content.
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_PrimaryReturnsNotPdf_DoesNotRetry()
     {
@@ -107,6 +131,12 @@ public sealed class DownloadRunnerAdditionalTests
         Assert.HasCount(1, http.RequestedUrls);
     }
 
+    /// <summary>
+    /// Ensures fallback behavior works when primary fails with a deterministic HTTP status (404):
+    /// - primary is attempted once (no retry)
+    /// - fallback is attempted next
+    /// - final status reflects the fallback URL as the attempted URL
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_PrimaryReturns404_FallbackPdf_IsDownloaded()
     {
@@ -142,7 +172,7 @@ public sealed class DownloadRunnerAdditionalTests
 
     private static byte[] CreatePdfBytes(string marker)
     {
-        // Minimal PDF signature plus marker bytes.
+        // Minimal PDF signature plus marker bytes (enough for the "%PDF-" header validation).
         return Encoding.ASCII.GetBytes($"%PDF-1.7\n{marker}");
     }
 

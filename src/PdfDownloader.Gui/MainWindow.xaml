@@ -1,4 +1,31 @@
-﻿<Window x:Class="PdfDownloader.Gui.MainWindow"
+﻿<!--
+===============================================================================
+ MainWindow.xaml
+===============================================================================
+
+ PURPOSE
+  - Main GUI layout for PdfDownloader.
+  - Defines visual structure, layout containers, styling, and bindings.
+
+ ARCHITECTURE ROLE
+  - Pure View layer (MVVM).
+  - No business logic should exist here.
+  - Behavior is delegated to:
+      * MainViewModel (bindings)
+      * ICommand implementations
+      * Observable collections
+
+ GUIDELINES
+  - Keep XAML declarative.
+  - Avoid code-behind logic.
+  - Prefer simple bindings and reusable Resources.
+
+ HANDOVER NOTES
+  - If behavior changes are required, extend the ViewModel.
+  - Keep styling reusable via Resources.
+===============================================================================
+-->
+<Window x:Class="PdfDownloader.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="PDF Downloader"

@@ -5,9 +5,26 @@ using PdfDownloader.Tests.TestDoubles;
 
 namespace PdfDownloader.Tests.Application;
 
+/// <summary>
+/// Core behavior tests for <see cref="DownloadRunner"/>.
+/// 
+/// Focus:
+/// - Happy path download + save
+/// - Fallback selection rules
+/// - Skip policy when file exists
+/// - Stop condition when max successful downloads is reached
+///
+/// These tests use deterministic fakes to avoid network and disk IO.
+/// </summary>
 [TestClass]
 public sealed class DownloadRunnerTests
 {
+    /// <summary>
+    /// Verifies the happy path:
+    /// - primary URL returns valid PDF bytes
+    /// - file is saved using BR number naming
+    /// - status row is returned and status file write is invoked
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_PrimaryPdf_IsDownloaded_AndSaved()
     {
@@ -38,20 +55,28 @@ public sealed class DownloadRunnerTests
             options: options,
             cancellationToken: CancellationToken.None);
 
-        // Assert
+        // Assert: outcome row is correct
         Assert.HasCount(1, rows);
         Assert.AreEqual(DownloadStatus.Downloaded, rows[0].Status);
         Assert.AreEqual(primaryUrl.ToString(), rows[0].AttemptedUrl);
 
+        // Assert: file persisted under expected name
         byte[]? saved = fileStore.TryGet("BR12345.pdf");
         Assert.IsNotNull(saved);
         CollectionAssert.AreEqual(pdfBytes, saved);
 
+        // Assert: status writer invoked with correct path + rows
         Assert.AreEqual("status.csv", statusWriter.LastRelativePath);
         Assert.IsNotNull(statusWriter.LastRows);
         Assert.HasCount(1, statusWriter.LastRows);
     }
 
+    /// <summary>
+    /// Verifies fallback behavior when primary returns deterministic non-PDF content:
+    /// - primary attempted first
+    /// - fallback attempted next
+    /// - fallback result is persisted and reflected in AttemptedUrl
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_PrimaryNotPdf_FallbackPdf_IsDownloaded()
     {
@@ -94,6 +119,12 @@ public sealed class DownloadRunnerTests
         Assert.AreEqual(fallbackUrl.ToString(), http.RequestedUrls[1]);
     }
 
+    /// <summary>
+    /// Verifies skip behavior:
+    /// - if file already exists and overwrite is disabled (default),
+    ///   the record is marked as SkippedExists
+    /// - no HTTP request is performed
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_FileAlreadyExists_IsSkipped()
     {
@@ -125,6 +156,11 @@ public sealed class DownloadRunnerTests
         Assert.HasCount(0, http.RequestedUrls);
     }
 
+    /// <summary>
+    /// Verifies the stop condition:
+    /// - the runner stops once it reaches MaxSuccessfulDownloads
+    /// - later records are not attempted
+    /// </summary>
     [TestMethod]
     public async Task RunAsync_StopsAfterTenSuccessfulDownloads()
     {
@@ -156,20 +192,20 @@ public sealed class DownloadRunnerTests
         // Act
         IReadOnlyList<DownloadStatusRow> rows = await runner.RunAsync(records, options, CancellationToken.None);
 
-        // Assert
+        // Assert: only 10 successes are recorded
         int downloaded = rows.Count(r => r.Status == DownloadStatus.Downloaded);
         Assert.AreEqual(10, downloaded);
 
-        // Should only download 10 files.
+        // Assert: only 10 files saved
         Assert.AreEqual(10, fileStore.Count);
 
-        // Should not attempt URLs beyond the first 10 records.
+        // Assert: only first 10 URLs attempted
         Assert.HasCount(10, http.RequestedUrls);
     }
 
     private static byte[] CreatePdfBytes()
     {
-        // Minimal PDF signature plus some bytes.
+        // Minimal PDF signature (enough for the "%PDF-" header validation).
         return "%PDF-1.7\n"u8.ToArray();
     }
 
