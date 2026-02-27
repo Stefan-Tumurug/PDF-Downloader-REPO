@@ -49,21 +49,21 @@ keeping the Core layer UI-agnostic.
 
 Detailed design diagrams are available in the `docs/` folder:
 
--   `architecture.png` --- High-level layered architecture diagram\
+-   `architecture.png` --- High-level layered architecture diagram
 -   `domain-class-diagram.png` --- Detailed class and dependency
     relationships
 
 The architecture diagram illustrates:
 
--   Clear separation between Presentation, Core, and Infrastructure\
--   Dependency inversion via interfaces\
+-   Clear separation between Presentation, Core, and Infrastructure
+-   Dependency inversion via interfaces
 -   How `DownloadRunner` coordinates the workflow
 
 The domain class diagram shows:
 
--   Core orchestration flow\
--   Interface contracts\
--   Concrete infrastructure implementations\
+-   Core orchestration flow
+-   Interface contracts
+-   Concrete infrastructure implementations
 -   Relationships between `DownloadRunner`, `DownloadOptions`,
     `DownloadStatusRow`, and domain models
 
@@ -73,16 +73,16 @@ The domain class diagram shows:
 
 For each record:
 
-1.  Validate BR number\
-2.  Resolve output filename (`<BRnum>.pdf`)\
-3.  Skip if file exists and overwrite is disabled\
+1.  Validate BR number
+2.  Resolve output filename (`<BRnum>.pdf`)
+3.  Skip if file exists and overwrite is disabled
 4.  Attempt Primary URL
-    -   Retry transient HTTP failures\
-    -   Validate `%PDF-` header before saving\
+    -   Retry transient HTTP failures
+    -   Validate `%PDF-` header before saving
 5.  If Primary fails and fallback exists:
-    -   Attempt Fallback URL\
-6.  Record final `DownloadStatus`\
-7.  Stop when `MaxSuccessfulDownloads` is reached\
+    -   Attempt Fallback URL
+6.  Record final `DownloadStatus`
+7.  Stop when `MaxSuccessfulDownloads` is reached
 8.  Write `status.csv` once at the end of execution
 
 ------------------------------------------------------------------------
