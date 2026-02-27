@@ -156,7 +156,42 @@ Infrastructure implementations provide the concrete behavior:
 Progress reporting is implemented through the `IProgress<DownloadProgress>` pattern,
 allowing the Core layer to remain UI-agnostic.
 
- 
+## Testing
+
+The project includes deterministic unit tests using MSTest.
+
+External dependencies such as HTTP and file system access are replaced with test doubles to ensure predictable behavior.
+
+### Covered Scenarios
+
+The following core behaviors are verified:
+
+- Successful PDF download using Primary URL
+- Fallback URL is used when Primary fails
+- Fallback is **not** used when Primary succeeds
+- Files are skipped when they already exist (`OverwriteExisting = false`)
+- Existing files are replaced when overwrite is enabled
+- Execution stops after the configured maximum number of successful downloads
+- Non-PDF responses are rejected
+- Unsupported URL schemes are handled gracefully
+- HTTP failures correctly fall back without retrying deterministic errors
+- Status results are generated consistently
+
+### Approach
+
+Tests are built around:
+
+- `FakeHttpDownloader`
+- `InMemoryFileStore`
+- `FakeStatusWriter`
+
+This allows the `DownloadRunner` to be tested without network or disk access.
+
+### Run Tests
+
+```bash
+dotnet test
+```
 
 ## Documentation
 

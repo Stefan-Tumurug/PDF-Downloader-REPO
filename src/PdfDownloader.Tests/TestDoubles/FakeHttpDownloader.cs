@@ -1,4 +1,5 @@
 ﻿using PdfDownloader.Core.Abstractions;
+using System.Net;
 
 namespace PdfDownloader.Tests.TestDoubles;
 
@@ -12,6 +13,7 @@ public sealed class FakeHttpDownloader : IHttpDownloader
     private readonly HashSet<string> _throwOnUrl = [];
     private readonly List<string> _requestedUrls = [];
     private readonly Dictionary<string, int> _throwTimesLeftByUrl = [];
+    private readonly Dictionary<string, HttpStatusCode> _throwStatusByUrl = [];
 
     public IReadOnlyList<string> RequestedUrls => _requestedUrls;
 
@@ -29,6 +31,19 @@ public sealed class FakeHttpDownloader : IHttpDownloader
         if (times < 1) throw new ArgumentOutOfRangeException(nameof(times));
         _throwTimesLeftByUrl[url.ToString()] = times;
     }
+
+
+public void SetupThrowWithStatus(Uri url, HttpStatusCode statusCode)
+{
+    _throwStatusByUrl[url.ToString()] = statusCode;
+}
+
+public void SetupThrowTimesWithStatus(Uri url, int times, HttpStatusCode statusCode)
+{
+    if (times < 1) throw new ArgumentOutOfRangeException(nameof(times));
+    _throwTimesLeftByUrl[url.ToString()] = times;
+    _throwStatusByUrl[url.ToString()] = statusCode;
+}
     public Task<byte[]> GetBytesAsync(Uri url, CancellationToken cancellationToken)
     {
         _requestedUrls.Add(url.ToString());
@@ -36,11 +51,22 @@ public sealed class FakeHttpDownloader : IHttpDownloader
         if (_throwTimesLeftByUrl.TryGetValue(url.ToString(), out int timesLeft) && timesLeft > 0)
         {
             _throwTimesLeftByUrl[url.ToString()] = timesLeft - 1;
+
+            if (_throwStatusByUrl.TryGetValue(url.ToString(), out HttpStatusCode statusCode))
+            {
+                throw new HttpRequestException("Simulated HTTP failure.", inner: null, statusCode: statusCode);
+            }
+
             throw new HttpRequestException("Simulated HTTP failure.");
         }
 
         if (_throwOnUrl.Contains(url.ToString()))
         {
+            if (_throwStatusByUrl.TryGetValue(url.ToString(), out HttpStatusCode statusCode))
+            {
+                throw new HttpRequestException("Simulated HTTP failure.", inner: null, statusCode: statusCode);
+            }
+
             throw new HttpRequestException("Simulated HTTP failure.");
         }
 
